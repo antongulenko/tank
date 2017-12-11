@@ -1,123 +1,133 @@
 package ft260
 
-import "fmt"
-
-const (
-	ReportID_I2CStatus    = 0xC0 // Feature In
-	ReportID_I2CRead      = 0xC2 // Output
-	ReportID_I2CInOut     = 0xD0 // 0xD0 - 0xDE, Input, Output
-	ReportID_I2CInOut_Max = 0xDE
-	// Max size of I2C write payload: (1 + Report ID - 0xD0) * 4 byte
-
-	I2CMaxPayload = (1 + ReportID_I2CInOut_Max - ReportID_I2CInOut) * 4
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"time"
 )
 
-const (
-	I2C_StatusControllerBusy = 1 << iota
-	I2C_StatusError
-	I2C_StatusNoSlaveAck
-	I2C_StatusNoDataAck
-	I2C_StatusArbitrationLost
-	I2C_StatusControllerIdle
-	I2C_StatusBusBusy
+var (
+	// This results in an I2C operation timeout of 500 milliseconds (plus USB transfer time)
+	I2cWaitTime  = 50 * time.Microsecond
+	I2cNumChecks = 10000
 )
 
-const (
-	I2C_MasterNone      = 0x0
-	I2C_MasterStart     = 0x2
-	I2C_MasterRepStart  = 0x3
-	I2C_MasterStop      = 0x4
-	I2C_MasterStartStop = 0x6
-)
+const i2c_any_error = I2C_StatusError | I2C_StatusNoSlaveAck | I2C_StatusNoDataAck |
+	I2C_StatusArbitrationLost | I2C_StatusBusBusy
 
-// Result of ReportID_I2CStatus Feature In
-type ReportI2cStatus struct {
-	BusStatus byte   // Bitmask of I2C_Status...
-	BusSpeed  uint16 // 2 byte: LSB+MSB
-	// 1 reserved
+type I2cError struct {
+	TimedOut        bool
+	BusBusy         bool
+	NoSlaveAck      bool
+	NoDataAck       bool
+	ArbitrationLost bool
+
+	OperationTime time.Duration
 }
 
-func (r ReportI2cStatus) ReportID() byte {
-	return ReportID_I2CInOut
-}
-
-func (r ReportI2cStatus) ReportLen() int {
-	return 5
-}
-
-func (r ReportI2cStatus) Unmarshall(b []byte) error {
-	r.BusStatus = b[1]
-	r.BusSpeed = uint16(b[2]) + uint16(b[3])<<8
-	return nil
-}
-
-// Data of ReportID_I2CInOut Interrupt Out
-type OperationI2cWrite struct {
-	SlaveAddr byte // 0..127
-	Condition byte // I2C_Master...
-	// 1 byte payload len
-	Payload []byte
-}
-
-func (r OperationI2cWrite) ReportID() byte {
-	return ReportID_I2CInOut + byte(len(r.Payload))/4
-}
-
-func (r OperationI2cWrite) ReportLen() int {
-	return len(r.Payload) + 4
-}
-
-func (r OperationI2cWrite) Marshall(b []byte) error {
-	if len(r.Payload) > I2CMaxPayload {
-		return fmt.Errorf("Payload len %v exceeds maximum size of %v", len(r.Payload), I2CMaxPayload)
+func (e I2cError) Error() string {
+	var errBuf bytes.Buffer
+	if e.NoSlaveAck {
+		errBuf.WriteString("no slave ack")
 	}
-	if r.SlaveAddr&0x80 != 0 {
-		return fmt.Errorf("Invalid I2C slave address: %02x", r.SlaveAddr)
+	if e.NoDataAck {
+		if errBuf.Len() > 0 {
+			errBuf.WriteString(", ")
+		}
+		errBuf.WriteString("no data ack")
 	}
-	b[1] = r.SlaveAddr
-	b[2] = r.Condition
-	b[3] = byte(len(r.Payload))
-	copy(b[4:], r.Payload)
-	return nil
-}
-
-// Data of ReportID_I2CRead Interrupt Out
-type OperationI2cRead struct {
-	SlaveAddr byte   // 0..127
-	Condition byte   // I2C_Master...
-	Len       uint16 // data length (little endian)
-}
-
-func (r OperationI2cRead) ReportID() byte {
-	return ReportID_I2CRead
-}
-
-func (r OperationI2cRead) ReportLen() int {
-	return 5
-}
-
-func (r OperationI2cRead) Marshall(b []byte) error {
-	if r.SlaveAddr&0x80 != 0 {
-		return fmt.Errorf("Invalid I2C slave address: %02x", r.SlaveAddr)
+	if e.ArbitrationLost {
+		if errBuf.Len() > 0 {
+			errBuf.WriteString(", ")
+		}
+		errBuf.WriteString("arbitration lost")
 	}
-	b[1] = r.SlaveAddr
-	b[2] = r.Condition
-	b[3], b[4] = byte(r.Len), byte(r.Len>>8)
-	return nil
+	if e.BusBusy {
+		if errBuf.Len() > 0 {
+			errBuf.WriteString(", ")
+		}
+		errBuf.WriteString("bus busy")
+	}
+	if e.TimedOut {
+		if errBuf.Len() > 0 {
+			errBuf.WriteString(", ")
+		}
+		errBuf.WriteString("operation timed out")
+	}
+	if errBuf.Len() == 0 {
+		errBuf.WriteString("Unknown I2C error")
+	}
+	fmt.Fprintf(&errBuf, " (duration: %v)", e.OperationTime)
+	return errBuf.String()
 }
 
-// Data of ReportID_I2CInOut Interrupt In
-type OperationI2cInput struct {
-	Len  byte // Payload length
-	Data []byte
+func (d *Ft260) I2cWrite(addr byte, data []byte) error {
+	op := OperationI2cWrite{
+		SlaveAddr: addr,
+		Condition: I2C_MasterStartStop,
+		Payload:   data,
+	}
+	err := d.Write(&op)
+	if err != nil {
+		return err
+	}
+	return d.i2cWait()
 }
 
-func (r OperationI2cInput) ReportID() byte {
-	// TODO The returned report ID will vary based on the payload size...
-	return ReportID_I2CRead
+func (d *Ft260) I2cRead(addr byte, data []byte) error {
+	op := OperationI2cRead{
+		SlaveAddr: addr,
+		Condition: I2C_MasterStartStop,
+		Len:       uint16(len(data)),
+	}
+	err := d.Write(&op)
+	if err != nil {
+		return err
+	}
+	if err := d.i2cWait(); err != nil {
+		return err
+	}
+
+	op2 := OperationI2cInput{
+		Data: data,
+	}
+	return d.Read(&op2)
 }
 
-func (r OperationI2cInput) ReportLen() int {
-	// TODO exact report length will vary...
-	return 64 // Max possible report length
+func (d *Ft260) I2cWriteRead(addr byte, out, in []byte) error {
+	return errors.New("I2c write+read not implemented")
+}
+
+func (d *Ft260) i2cWait() error {
+	start := time.Now()
+	var op ReportI2cStatus
+	for i := 0; i < I2cNumChecks; i++ {
+		if err := d.Read(&op); err != nil {
+			return fmt.Errorf("Failed to check I2C status while waiting for operation to complete: %v", err)
+		}
+		s := op.BusStatus
+
+		// Wait until the I2C controller is idle
+		if s&I2C_StatusControllerBusy != 0 || s&I2C_StatusControllerIdle == 0 {
+			continue
+		}
+
+		if s&i2c_any_error == 0 {
+			return nil
+		} else {
+			return I2cError{
+				BusBusy:         s&I2C_StatusBusBusy != 0,
+				NoSlaveAck:      s&I2C_StatusNoSlaveAck != 0,
+				NoDataAck:       s&I2C_StatusNoDataAck != 0,
+				ArbitrationLost: s&I2C_StatusArbitrationLost != 0,
+				OperationTime:   time.Now().Sub(start),
+			}
+		}
+		time.Sleep(I2cWaitTime)
+	}
+	return I2cError{
+		TimedOut:      true,
+		OperationTime: time.Now().Sub(start),
+	}
 }

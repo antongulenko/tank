@@ -40,15 +40,15 @@ const (
 
 const (
 	Clock12MHz = byte(0)
-	Clock24MHz
-	Clock48MHz
+	Clock24MHz = byte(1)
+	Clock48MHz = byte(2)
 
 	// ReportSystemStatus.UartMode
-	UartOff = byte(0)
-	UartRTS_CTS
-	UartDTR_DSR
-	UartXON_XOFF
-	UartNoFlowControl
+	UartOff           = byte(0)
+	UartRTS_CTS       = byte(1)
+	UartDTR_DSR       = byte(2)
+	UartXON_XOFF      = byte(3)
+	UartNoFlowControl = byte(4)
 
 	GPIO_2_Normal    = byte(0)
 	GPIO_2_Suspout   = byte(1)
@@ -64,14 +64,14 @@ const (
 	GPIO_G_RxLed     = byte(5)
 	GPIO_G_BcdDet    = byte(6)
 
-	InterruptTriggerRisingEdge = byte(0)
-	InterruptTriggerLevelHigh
-	InterruptTriggerFallingEdge
-	InterruptTriggerLevelLow
+	InterruptTriggerRisingEdge  = byte(0)
+	InterruptTriggerLevelHigh   = byte(1)
+	InterruptTriggerFallingEdge = byte(2)
+	InterruptTriggerLevelLow    = byte(3)
 
-	InterruptLevelDuration1ms = byte(1)
-	InterruptLevelDuration5ms
-	InterruptLevelDuration30ms
+	InterruptLevelDuration1ms  = byte(1)
+	InterruptLevelDuration5ms  = byte(2)
+	InterruptLevelDuration30ms = byte(3)
 )
 
 // Result of ReportID_ChipCode Feature In
@@ -80,16 +80,16 @@ type ReportChipCode struct {
 	// 8 reserved byte
 }
 
-func (r ReportChipCode) ReportID() byte {
+func (r *ReportChipCode) ReportID() byte {
 	return ReportID_ChipCode
 }
 
-func (r ReportChipCode) ReportLen() int {
-	return 13
+func (r *ReportChipCode) ReportLen() int {
+	return 12
 }
 
-func (r ReportChipCode) Unmarshall(b []byte) error {
-	r.ChipCode = uint32(b[1]) + uint32(b[2])<<8 + uint32(b[3])<<16 + uint32(b[4])<<24
+func (r *ReportChipCode) Unmarshall(b []byte) error {
+	r.ChipCode = uint32(b[0]) + uint32(b[1])<<8 + uint32(b[2])<<16 + uint32(b[3])<<24
 	return nil
 }
 
@@ -120,15 +120,16 @@ func (s ReportSystemStatus) InterruptLevelDuration() byte {
 	return (s.InterruptCond >> 2) & 0x3 // InterruptLevelDuration...
 }
 
-func (r ReportSystemStatus) ReportID() byte {
+func (r *ReportSystemStatus) ReportID() byte {
 	return ReportID_SystemSetting
 }
 
-func (r ReportSystemStatus) ReportLen() int {
-	return 19
+func (r *ReportSystemStatus) ReportLen() int {
+	// This should be 19 byte, but the device returns an error for less than 25...
+	return 24
 }
 
-func (r ReportSystemStatus) Unmarshall(b []byte) (err error) {
+func (r *ReportSystemStatus) Unmarshall(b []byte) (err error) {
 	r.ChipMode = b[0]
 	r.Clock = b[1]
 	r.Suspended = _readBool(b, 2, &err)
@@ -151,12 +152,12 @@ type SetSystemStatus struct {
 	Value   interface{}
 }
 
-func (r SetSystemStatus) ReportID() byte {
+func (r *SetSystemStatus) ReportID() byte {
 	return ReportID_SystemSetting
 }
 
-func (r SetSystemStatus) ReportLen() int {
-	res := 2
+func (r *SetSystemStatus) ReportLen() int {
+	res := 1
 	switch r.Request {
 	case SetSystemSetting_I2CReset, SetSystemSetting_UartReset:
 		// No payload
@@ -180,7 +181,8 @@ func (r SetSystemStatus) ReportLen() int {
 	return res
 }
 
-func (r SetSystemStatus) Marshall(b []byte) error {
+func (r *SetSystemStatus) Marshall(b []byte) error {
+	b[0] = r.Request
 	switch r.Request {
 	case SetSystemSetting_I2CReset, SetSystemSetting_UartReset:
 		// No payload
@@ -193,7 +195,7 @@ func (r SetSystemStatus) Marshall(b []byte) error {
 		if !ok {
 			return fmt.Errorf("System Setting Request ID %02x expects type %T, but got value of type %T (%v)", r.Request, byte(0), r.Value, r.Value)
 		}
-		b[0] = val
+		b[1] = val
 
 	case SetSystemSetting_EnableWakeupInt, SetSystemSetting_SuspendOutActiveLow, SetSystemSetting_EnableUartDcdRi,
 		SetSystemSetting_EnableUartRiWakeup, SetSystemSetting_UartRiWakeupFallingEdge, SetSystemSetting_UartBreaking:
@@ -203,21 +205,23 @@ func (r SetSystemStatus) Marshall(b []byte) error {
 			return fmt.Errorf("System Setting Request ID %02x expects type %T, but got value of type %T (%v)", r.Request, false, r.Value, r.Value)
 		}
 		if val {
-			b[0] = 1
+			b[1] = 1
 		} else {
-			b[0] = 0
+			b[1] = 0
 		}
 
 	case SetSystemSetting_Interrupt:
 		//= 0x0A // 2 byte: InterruptTrigger..., InterruptLevelDuration...
+		return errors.New("Configuring intterupt is not implemented")
 	case SetSystemSetting_UartXonXoff:
 		//= 0x49 // 2 byte (xon char, xoff char)
+		return errors.New("Configuring Uart XON/XOFF is not implemented")
 	case SetSystemSetting_I2CSetClock:
 		val, ok := r.Value.(uint16)
 		if !ok {
 			return fmt.Errorf("System Setting Request ID %v expects type %T, but got value of type %T (%v)", r.Request, uint16(0), r.Value, r.Value)
 		}
-		b[0], b[1] = byte(val<<16), byte(val)
+		b[1], b[2] = byte(val), byte(val>>16)
 	case SetSystemSetting_ConfigureUart:
 		return errors.New("Configuring UART is not implemented")
 	case SetSystemSetting_UartBaudRate:

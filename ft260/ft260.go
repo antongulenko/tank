@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/karalabe/hid"
+	"time"
+
+	"github.com/antongulenko/hid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,8 +35,8 @@ func (d *Ft260Driver) Open() (*Ft260, error) {
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("No USB HID device found with vendorID=%04x productID=%04x", vendor, product)
 	} else {
-		if len(devices) > 0 {
-			log.Warnf("Multiple devices connected with vendorID=%04x productID=%04x, using first", vendor, product)
+		if len(devices) > 1 {
+			log.Warnf("%v devices connected with vendorID=%04x productID=%04x, using first", len(devices), vendor, product)
 		}
 		info := devices[0]
 		log.Printf("Opening USB HID device %v (USB %v): %v (%04x) from %v (%04x), Release %v",
@@ -69,22 +71,32 @@ type ReportOut interface {
 	ReportLen() int
 }
 
+// Marker interface to switch from Feature in/out requests to raw data
+type DataReport interface {
+	IsDataReport() bool
+}
+
 func (f *Ft260) Write(input interface{}) error {
 	var data []byte
+	feature := true
 	switch v := input.(type) {
 	case []byte:
 		data = v
 	case ReportOut:
-		data = make([]byte, v.ReportLen())
-		err := v.Marshall(data)
+		data = make([]byte, v.ReportLen()+1)
+		err := v.Marshall(data[1:])
 		if err != nil {
 			return err
 		}
 		data[0] = v.ReportID()
+		if dataReport, ok := v.(DataReport); ok {
+			feature = !dataReport.IsDataReport()
+		}
 	default:
 		return fmt.Errorf("Unexpected type for writing to FT260: %T", input)
 	}
-	n, err := f.Device.Write(data)
+	log.Debugf("Writing HID report (feature: %v). Data: %#v", feature, data)
+	n, err := f.Device.DoWrite(data, feature)
 	if err == nil && n != len(data) {
 		err = fmt.Errorf("ft260: wrong write len (%v instead of %v)", n, len(data))
 	}
@@ -92,9 +104,15 @@ func (f *Ft260) Write(input interface{}) error {
 }
 
 func (f *Ft260) Read(report ReportIn) error {
-	data := make([]byte, report.ReportLen())
+	data := make([]byte, report.ReportLen()+1)
 	data[0] = report.ReportID()
-	n, err := f.Device.Read(data)
+
+	feature := true
+	if dataReport, ok := report.(DataReport); ok {
+		feature = !dataReport.IsDataReport()
+	}
+	log.Debugf("Reading HID report (feature: %v). Data: %#v", feature, data)
+	n, err := f.Device.DoRead(data, feature, 500*time.Millisecond)
 	if err == nil && n != len(data) {
 		err = fmt.Errorf("ft260: wrong read len (%v instead of %v)", n, len(data))
 	}
@@ -102,13 +120,13 @@ func (f *Ft260) Read(report ReportIn) error {
 		return fmt.Errorf("Unexpected report id (expected %v, received %v)", report.ReportID(), data[0])
 	}
 	if err == nil {
-		err = report.Unmarshall(data)
+		err = report.Unmarshall(data[1:])
 	}
 	return err
 }
 
 func _readBool(b []byte, index int, e *error) bool {
-	if *e != nil {
+	if *e == nil {
 		val := b[index]
 		if val == 0 {
 			return false
