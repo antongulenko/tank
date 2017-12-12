@@ -2,7 +2,6 @@ package ft260
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -62,10 +61,14 @@ func (e I2cError) Error() string {
 	return errBuf.String()
 }
 
-func (d *Ft260) I2cWrite(addr byte, data []byte) error {
+func (d *Ft260) I2cWrite(addr byte, data ...byte) error {
+	return d.i2cWrite(addr, I2C_MasterStartStop, data...)
+}
+
+func (d *Ft260) i2cWrite(addr byte, condition byte, data ...byte) error {
 	op := OperationI2cWrite{
 		SlaveAddr: addr,
-		Condition: I2C_MasterStartStop,
+		Condition: condition,
 		Payload:   data,
 	}
 	err := d.Write(&op)
@@ -76,9 +79,13 @@ func (d *Ft260) I2cWrite(addr byte, data []byte) error {
 }
 
 func (d *Ft260) I2cRead(addr byte, data []byte) error {
+	return d.i2cRead(addr, I2C_MasterStartStop, data)
+}
+
+func (d *Ft260) i2cRead(addr byte, condition byte, data []byte) error {
 	op := OperationI2cRead{
 		SlaveAddr: addr,
-		Condition: I2C_MasterStartStop,
+		Condition: condition,
 		Len:       uint16(len(data)),
 	}
 	err := d.Write(&op)
@@ -96,7 +103,18 @@ func (d *Ft260) I2cRead(addr byte, data []byte) error {
 }
 
 func (d *Ft260) I2cWriteRead(addr byte, out, in []byte) error {
-	return errors.New("I2c write+read not implemented")
+	err := d.i2cWrite(addr, I2C_MasterStart, out...) // No STOP!
+	if err == nil {
+		err = d.i2cRead(addr, I2C_MasterStartStop, in) // This is a repeated START.
+	}
+	return err
+}
+
+func (d *Ft260) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
+	send := []byte{registerAddr}
+	receive := make([]byte, size)
+	err := d.I2cWriteRead(addr, send, receive)
+	return receive, err
 }
 
 func (d *Ft260) i2cWait() error {

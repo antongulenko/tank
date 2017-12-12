@@ -74,6 +74,8 @@ const (
 	InterruptLevelDuration30ms = byte(3)
 )
 
+const FT260_CHIP_CODE = 0x02600200
+
 // Result of ReportID_ChipCode Feature In
 type ReportChipCode struct {
 	ChipCode uint32 // 02600200
