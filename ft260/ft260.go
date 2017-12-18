@@ -13,6 +13,8 @@ import (
 const (
 	FTDIVendorId   = 0x0403
 	FT260ProductId = 0x6030
+
+	ReadReportTimeout = 500 * time.Millisecond
 )
 
 type Ft260Driver struct {
@@ -21,6 +23,10 @@ type Ft260Driver struct {
 }
 
 func (d *Ft260Driver) Open() (*Ft260, error) {
+	return d.OpenPath("")
+}
+
+func (d *Ft260Driver) OpenPath(path string) (*Ft260, error) {
 	if !hid.Supported() {
 		return nil, errors.New("This libray github.com/karalabe/hid is not supported on this platform")
 	}
@@ -35,10 +41,39 @@ func (d *Ft260Driver) Open() (*Ft260, error) {
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("No USB HID device found with vendorID=%04x productID=%04x", vendor, product)
 	} else {
-		if len(devices) > 1 {
-			log.Warnf("%v devices connected with vendorID=%04x productID=%04x, using first", len(devices), vendor, product)
+		var info hid.DeviceInfo
+		if len(devices) == 1 {
+			info = devices[0]
+			if path != "" && info.Path != path {
+				return nil, fmt.Errorf("Given device path %v does not match %v", path, info.Path)
+			}
+		} else {
+			if path != "" {
+				found := false
+				for _, dev := range devices {
+					if dev.Path == path {
+						info = dev
+						found = true
+						break
+					}
+				}
+				if !found {
+					log.Warnf("%v devices connected with vendorID=%04x productID=%04x", len(devices), vendor, product)
+					for i, dev := range devices {
+						log.Warnf("Device %v: %v (USB %v): %v (%04x) from %v (%04x), Release %v",
+							i, dev.Path, dev.Interface, dev.Product, dev.ProductID, dev.Manufacturer, dev.VendorID, dev.Release)
+					}
+					return nil, errors.New("No device matched the given device path " + path)
+				}
+			} else {
+				log.Warnf("%v devices connected with vendorID=%04x productID=%04x", len(devices), vendor, product)
+				for i, dev := range devices {
+					log.Warnf("Device %v: %v (USB %v): %v (%04x) from %v (%04x), Release %v",
+						i, dev.Path, dev.Interface, dev.Product, dev.ProductID, dev.Manufacturer, dev.VendorID, dev.Release)
+				}
+				return nil, errors.New("Please specify a unique device path")
+			}
 		}
-		info := devices[0]
 		log.Printf("Opening USB HID device %v (USB %v): %v (%04x) from %v (%04x), Release %v",
 			info.Path, info.Interface, info.Product, info.ProductID, info.Manufacturer, info.VendorID, info.Release)
 		dev, err := info.Open()
@@ -53,6 +88,10 @@ func (d *Ft260Driver) Open() (*Ft260, error) {
 
 func Open() (*Ft260, error) {
 	return (&Ft260Driver{}).Open()
+}
+
+func OpenPath(path string) (*Ft260, error) {
+	return (&Ft260Driver{}).OpenPath(path)
 }
 
 type Ft260 struct {
@@ -76,6 +115,16 @@ type DataReport interface {
 	IsDataReport() bool
 }
 
+// Marker interface for ReportIn implementations with variable size. The result of ReportLen() is treated as max size.
+type VariableSizeReport interface {
+	IsVariableSize() bool
+}
+
+// Marker interface for ReportIn implementations with variable report ID.
+type VariableReportID interface {
+	IsVariableReportID() bool
+}
+
 func (f *Ft260) Write(input interface{}) error {
 	var data []byte
 	feature := true
@@ -86,7 +135,7 @@ func (f *Ft260) Write(input interface{}) error {
 		data = make([]byte, v.ReportLen()+1)
 		err := v.Marshall(data[1:])
 		if err != nil {
-			return err
+			return fmt.Errorf("Failed to marshall Ft260 write operation %T: %v", input, err)
 		}
 		data[0] = v.ReportID()
 		if dataReport, ok := v.(DataReport); ok {
@@ -112,15 +161,22 @@ func (f *Ft260) Read(report ReportIn) error {
 		feature = !dataReport.IsDataReport()
 	}
 	log.Debugf("Reading HID report (feature: %v). Data: %#v", feature, data)
-	n, err := f.Device.DoRead(data, feature, 500*time.Millisecond)
-	if err == nil && n != len(data) {
-		err = fmt.Errorf("ft260: wrong read len (%v instead of %v)", n, len(data))
+	n, err := f.Device.DoRead(data, feature, ReadReportTimeout)
+	if variableReport, ok := report.(VariableSizeReport); !ok || !variableReport.IsVariableSize() {
+		if err == nil && n != len(data) {
+			err = fmt.Errorf("ft260: wrong read len (%v instead of %v)", n, len(data))
+		}
 	}
-	if err == nil && data[0] != report.ReportID() {
-		return fmt.Errorf("Unexpected report id (expected %v, received %v)", report.ReportID(), data[0])
+	if variableReport, ok := report.(VariableReportID); !ok || !variableReport.IsVariableReportID() {
+		if err == nil && data[0] != report.ReportID() {
+			return fmt.Errorf("Unexpected report id (expected %v, received %v)", report.ReportID(), data[0])
+		}
 	}
 	if err == nil {
-		err = report.Unmarshall(data[1:])
+		err = report.Unmarshall(data[1:n])
+		if err != nil {
+			err = fmt.Errorf("Failed to unmarshall ft260 read result %T: %v", report, err)
+		}
 	}
 	return err
 }

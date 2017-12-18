@@ -22,7 +22,7 @@ const (
 	SetSystemSetting_GPIO_G = 0x09 // GPIO_G_...
 
 	SetSystemSetting_I2CReset    = 0x20 // <empty>
-	SetSystemSetting_I2CSetClock = 0x22 // LSB+MSB of clock speed (60K-3400K bps)
+	SetSystemSetting_I2CSetClock = 0x22 // LSB+MSB of clock speed in kHz (60K-3400K bps)
 
 	SetSystemSetting_Uart                    = 0x3  // Uart...
 	SetSystemSetting_EnableUartDcdRi         = 0x07 // bool
@@ -91,7 +91,9 @@ func (r *ReportChipCode) ReportLen() int {
 }
 
 func (r *ReportChipCode) Unmarshall(b []byte) error {
-	r.ChipCode = uint32(b[0]) + uint32(b[1])<<8 + uint32(b[2])<<16 + uint32(b[3])<<24
+	// TODO not sure what order the bytes come in
+	// r.ChipCode = uint32(b[0]) + uint32(b[1])<<8 + uint32(b[2])<<16 + uint32(b[3])<<24
+	r.ChipCode = uint32(b[0])<<24 + uint32(b[1])<<16 + uint32(b[2])<<8 + uint32(b[3])
 	return nil
 }
 
@@ -223,7 +225,7 @@ func (r *SetSystemStatus) Marshall(b []byte) error {
 		if !ok {
 			return fmt.Errorf("System Setting Request ID %v expects type %T, but got value of type %T (%v)", r.Request, uint16(0), r.Value, r.Value)
 		}
-		b[1], b[2] = byte(val), byte(val>>16)
+		b[1], b[2] = byte(val), byte(val>>8)
 	case SetSystemSetting_ConfigureUart:
 		return errors.New("Configuring UART is not implemented")
 	case SetSystemSetting_UartBaudRate:

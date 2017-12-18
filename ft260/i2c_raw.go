@@ -13,7 +13,7 @@ const (
 )
 
 const (
-	I2C_StatusControllerBusy = 1 << iota
+	I2C_StatusControllerBusy = byte(1 << iota)
 	I2C_StatusError
 	I2C_StatusNoSlaveAck
 	I2C_StatusNoDataAck
@@ -29,6 +29,23 @@ const (
 	I2C_MasterStop      = 0x4
 	I2C_MasterStartStop = 0x6
 )
+
+func I2cMasterCodeString(code byte) string {
+	switch code {
+	case I2C_MasterNone:
+		return "Nothing"
+	case I2C_MasterStart:
+		return "Start"
+	case I2C_MasterRepStart:
+		return "Repeated Start"
+	case I2C_MasterStop:
+		return "Stop"
+	case I2C_MasterStartStop:
+		return "Start + Stop"
+	default:
+		return fmt.Sprintf("Unknown I2C Master code %v", code)
+	}
+}
 
 // Result of ReportID_I2CStatus Feature In
 type ReportI2cStatus struct {
@@ -124,6 +141,14 @@ func (r *OperationI2cInput) IsDataReport() bool {
 	return true
 }
 
+func (r *OperationI2cInput) IsVariableSize() bool {
+	return true
+}
+
+func (r *OperationI2cInput) IsVariableReportID() bool {
+	return true
+}
+
 func (r *OperationI2cInput) ReportID() byte {
 	// The report ID probably does not matter here
 	return ReportID_I2CInOut
@@ -138,6 +163,6 @@ func (r *OperationI2cInput) Unmarshall(d []byte) error {
 	if len(d) < int(l)+1 {
 		return fmt.Errorf("Short I2C read (%v, needed at least %v)", len(d), l+1)
 	}
-	r.Data = d[1 : 1+l]
+	copy(r.Data, d[1:1+l])
 	return nil
 }

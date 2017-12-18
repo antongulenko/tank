@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"time"
 
 	"github.com/antongulenko/golib"
 	"github.com/antongulenko/hid"
@@ -13,11 +15,22 @@ import (
 )
 
 var (
-	i2cFreq = uint(400000)
+	usbDevice         = ""
+	i2cFreq           = uint(400)
+	sleepTime         = 400 * time.Millisecond
+	benchTime         = 3 * time.Second
+	command           = "scan"
+	availableCommands = []string{
+		"none", "scan", "bench", "gpio",
+	}
 )
 
 func main() {
-	flag.UintVar(&i2cFreq, "freq", i2cFreq, "The I2C bus frequency")
+	flag.StringVar(&usbDevice, "dev", usbDevice, "Specify a USB path for FT260")
+	flag.UintVar(&i2cFreq, "freq", i2cFreq, "The I2C bus frequency (60 - 3400)")
+	flag.DurationVar(&sleepTime, "sleep", sleepTime, "Sleep time between GPIO updates (gpio command)")
+	flag.DurationVar(&benchTime, "benchTime", sleepTime, "Benchmark time (bench command)")
+	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
 	golib.RegisterLogFlags()
 	flag.Parse()
 	golib.ConfigureLogging()
@@ -32,7 +45,7 @@ func doMain() error {
 	defer func() {
 		golib.Printerr(hid.Shutdown())
 	}()
-	dev, err := ft260.Open()
+	dev, err := ft260.OpenPath(usbDevice)
 	if err != nil {
 		return err
 	}
@@ -52,7 +65,24 @@ func doMain() error {
 	}
 	log.Println("Successfully opened and configured FT260 device")
 
-	return work(dev)
+	switch command {
+	case "none":
+		// Nothing
+		return nil
+	case "scan":
+		slaves, err := dev.I2cScan()
+		if err != nil {
+			return err
+		}
+		log.Printf("Scanned slaves: %#02v", slaves)
+	case "bench":
+		return gpioSpeedTest(dev, mcp23017.ADDRESS)
+	case "gpio":
+		return gpioTest(dev, mcp23017.ADDRESS)
+	default:
+		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
+	}
+	return nil
 }
 
 func validateFt260ChipCode(dev *ft260.Ft260) error {
@@ -91,6 +121,9 @@ func validateFt260(dev *ft260.Ft260) error {
 	if err := dev.Read(&status); err != nil {
 		return err
 	}
+	if status.ChipMode != 0x01 {
+		return fmt.Errorf("FT260: unexpected chip mode %02x (expected %02x)", status.ChipMode, 0x01)
+	}
 	if status.Clock != ft260.Clock48MHz {
 		return fmt.Errorf("FT260: unexpected clock value %02x (expected %02x)", status.Clock, ft260.Clock48MHz)
 	}
@@ -112,11 +145,8 @@ func validateFt260(dev *ft260.Ft260) error {
 	if !status.PowerStatus {
 		return errors.New("FT260: device is powered off")
 	}
-	if status.I2CEnable {
+	if !status.I2CEnable {
 		return errors.New("FT260: I2C is not enabled on the device")
-	}
-	if status.ChipMode != 0x01 {
-		return fmt.Errorf("FT260: unexpected chip mode %02x (expected %02x)", status.ChipMode, 0x01)
 	}
 
 	var i2cStatus ft260.ReportI2cStatus
@@ -129,23 +159,96 @@ func validateFt260(dev *ft260.Ft260) error {
 	return nil
 }
 
-const gpioConfig = mcp23017.IOCON_BIT_INTPOL | mcp23017.IOCON_BIT_HAEN | mcp23017.IOCON_BIT_SEQOP
+func gpioSpeedTest(dev *ft260.Ft260, addr byte) error {
+	log.Printf("Configuring GPIO extension %02x", addr)
+	if err := dev.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
+		return err
+	}
 
-func work(dev *ft260.Ft260) error {
-	log.Println("Configuring GPIO extension")
-	if err := dev.I2cWrite(mcp23017.ADDRESS, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
+	// Write/Read every register on the device to overflow and start writing/reading from the first register again
+	data := []byte{0, 0xFF, 0, 0xFF, 0, 0, 0xFF, 0xFF, 0, 0, gpioConfig, gpioConfig, 0xFF, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}
+
+	log.Println("Measuring write...")
+	writeData := append([]byte{0}, data...)
+	err := bench(func() (int, error) {
+		err := dev.I2cWrite(addr, writeData...)
+		return len(data), err
+	})
+	if err != nil {
+		return err
+	}
+
+	// Read the last byte to set the read address to the first position
+	if b, err := dev.I2cGet(addr, byte(len(data)-1), 1); err != nil {
+		return err
+	} else {
+		expect := []byte{data[len(data)-1]}
+		if !bytes.Equal(b, expect) {
+			return fmt.Errorf("Expected to read %02x, but got %02x", expect, b)
+		}
+	}
+
+	log.Println("Measuring read...")
+	receive := make([]byte, len(data)*2)
+	expectedReadData := make([]byte, len(receive))
+	copy(expectedReadData, data)
+	copy(expectedReadData[len(data):], data)
+	err = bench(func() (int, error) {
+		err := dev.I2cRead(addr, receive)
+		return len(receive), err
+	})
+	if !bytes.Equal(expectedReadData, receive) {
+		log.Warnln("Received unexpected bytes:", receive)
+		log.Warnln(" --------------- Expected:", expectedReadData)
+	}
+	return err
+}
+
+func bench(benchFunc func() (int, error)) error {
+	start := time.Now()
+	transmitted := 0
+	for i := 0; ; i++ {
+		transmittedNew, err := benchFunc()
+		if err != nil {
+			return err
+		}
+		transmitted += transmittedNew
+		if i%20 == 0 {
+			if duration := time.Now().Sub(start); duration > benchTime {
+				bps := float64(transmitted) * 8 / duration.Seconds()
+				log.Printf("Transmitted %v byte in %v -> %2v bps", transmitted, duration, bps)
+				break
+			}
+		}
+	}
+	return nil
+}
+
+const gpioConfig = mcp23017.IOCON_BIT_INTPOL | mcp23017.IOCON_BIT_HAEN
+
+func gpioTest(dev *ft260.Ft260, addr byte) error {
+	log.Printf("Configuring GPIO extension %02x", addr)
+	if err := dev.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
 		return err
 	}
 
 	log.Println("Enabling Ports A and B as output")
-	if err := dev.I2cWrite(mcp23017.ADDRESS, mcp23017.IODIR_PAIRED, mcp23017.INPUT, mcp23017.INPUT); err != nil {
+	if err := dev.I2cWrite(addr, mcp23017.IODIR_PAIRED, mcp23017.OUTPUT, mcp23017.OUTPUT); err != nil {
 		return err
 	}
 
-	log.Warnln("Setting Ports A and B high")
-	if err := dev.I2cWrite(mcp23017.ADDRESS, mcp23017.GPIO_PAIRED, 0xFF, 0xFF); err != nil {
-		return err
+	val := byte(0xFF)
+	for {
+		if err := dev.I2cWrite(addr, mcp23017.GPIO_PAIRED, val, val); err != nil {
+			return err
+		}
+		if values, err := dev.I2cGet(addr, mcp23017.GPIO_PAIRED, 2); err != nil {
+			return err
+		} else {
+			log.Println("Port values:", values)
+		}
+		val = ^val
+		time.Sleep(sleepTime)
 	}
-
 	return nil
 }
