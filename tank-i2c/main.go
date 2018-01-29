@@ -5,12 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/antongulenko/golib"
 	"github.com/antongulenko/hid"
 	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/mcp23017"
+	"github.com/antongulenko/tank/pca9685"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,8 +23,10 @@ var (
 	benchTime         = 3 * time.Second
 	command           = "scan"
 	availableCommands = []string{
-		"none", "scan", "bench", "gpio",
+		"none", "scan", "bench", "gpio", "motors",
 	}
+	motorSpeed1 = float64(0)
+	motorSpeed2 = float64(0)
 )
 
 func main() {
@@ -31,6 +35,8 @@ func main() {
 	flag.DurationVar(&sleepTime, "sleep", sleepTime, "Sleep time between GPIO updates (gpio command)")
 	flag.DurationVar(&benchTime, "benchTime", sleepTime, "Benchmark time (bench command)")
 	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
+	flag.Float64Var(&motorSpeed1, "m1", motorSpeed1, "Speed of motor 1 (-100..100)")
+	flag.Float64Var(&motorSpeed2, "m2", motorSpeed2, "Speed of motor 2 (-100..100)")
 	golib.RegisterLogFlags()
 	flag.Parse()
 	golib.ConfigureLogging()
@@ -79,6 +85,8 @@ func doMain() error {
 		return gpioSpeedTest(dev, mcp23017.ADDRESS)
 	case "gpio":
 		return gpioTest(dev, mcp23017.ADDRESS)
+	case "motors":
+		return setMotors(dev, mcp23017.ADDRESS, pca9685.ADDRESS, motorSpeed1, motorSpeed2)
 	default:
 		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
 	}
@@ -226,7 +234,7 @@ func bench(benchFunc func() (int, error)) error {
 
 const gpioConfig = mcp23017.IOCON_BIT_INTPOL | mcp23017.IOCON_BIT_HAEN
 
-func gpioTest(dev *ft260.Ft260, addr byte) error {
+func initGpio(dev *ft260.Ft260, addr byte) error {
 	log.Printf("Configuring GPIO extension %02x", addr)
 	if err := dev.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
 		return err
@@ -234,6 +242,13 @@ func gpioTest(dev *ft260.Ft260, addr byte) error {
 
 	log.Println("Enabling Ports A and B as output")
 	if err := dev.I2cWrite(addr, mcp23017.IODIR_PAIRED, mcp23017.OUTPUT, mcp23017.OUTPUT); err != nil {
+		return err
+	}
+	return nil
+}
+
+func gpioTest(dev *ft260.Ft260, addr byte) error {
+	if err := initGpio(dev, addr); err != nil {
 		return err
 	}
 
@@ -251,4 +266,83 @@ func gpioTest(dev *ft260.Ft260, addr byte) error {
 		time.Sleep(sleepTime)
 	}
 	return nil
+}
+
+const (
+	motorStop     = 0
+	motorForward  = 1
+	motorBackward = 2
+)
+
+func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 float64) error {
+	if speed1 < -100 || speed1 > 100 {
+		return fmt.Errorf("Illegal motor speed1 %v (must be -100..100)", speed1)
+	}
+	if speed2 < -100 || speed2 > 100 {
+		return fmt.Errorf("Illegal motor speed2 %v (must be -100..100)", speed2)
+	}
+
+	// Initialize both devices first
+	if err := initGpio(dev, gpioAddr); err != nil {
+		return err
+	}
+	log.Printf("Initializing PWM driver at %02x...", pwmAddr)
+	if err := dev.I2cWrite(pwmAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI); err != nil {
+		return err
+	}
+
+	// Set GPIO direction pins
+	state1 := getMotorState(speed1)
+	state2 := getMotorState(speed2)
+	gpioByte, err := motorGpioByte(state1, state2)
+	if err != nil {
+		return err
+	}
+	log.Printf("Setting GPIO port B to %02x", gpioByte)
+	if err := dev.I2cWrite(gpioAddr, mcp23017.GPIO_B_PAIRED, gpioByte); err != nil {
+		return err
+	}
+
+	// Configure PWM signals
+	pwmValues := make([]byte, 8)
+	pca9685.ValuesInto(math.Abs(speed1)/100, pwmValues)
+	pca9685.ValuesInto(math.Abs(speed2)/100, pwmValues[4:])
+	log.Println("Setting PWM values for motor 1 and 2...")
+	if err := dev.I2cWrite(pwmAddr, pwmValues...); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getMotorState(speed float64) int {
+	if speed < 0 {
+		return motorBackward
+	} else if speed > 0 {
+		return motorForward
+	}
+	return motorStop
+}
+
+func motorGpioByte(state1, state2 int) (byte, error) {
+	result := byte(0)
+	switch state1 {
+	case motorStop:
+	case motorForward:
+		result |= 1
+	case motorBackward:
+		result |= 2
+	default:
+		return 0, fmt.Errorf("Illegal motor state %v", state1)
+	}
+	switch state2 {
+	case motorStop:
+	case motorForward:
+		result |= 4
+	case motorBackward:
+		result |= 8
+	default:
+		return 0, fmt.Errorf("Illegal motor state %v", state2)
+	}
+	return result, nil
 }
