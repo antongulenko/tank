@@ -43,6 +43,14 @@ func (s *testSuite) TestExample2() {
 	s.Equal(byte(0xcb), offL, "LED OFF LOW")
 }
 
+func (s *testSuite) TestNoDelay() {
+	onL, onH, offL, offH := ValuesDelayed(0, 0.9)
+	s.Equal(byte(0x0), onH, "LED ON HIGH")
+	s.Equal(byte(0x0), onL, "LED ON LOW")
+	s.Equal(byte(0xe), offH, "LED OFF HIGH")
+	s.Equal(byte(0x65), offL, "LED OFF LOW")
+}
+
 // Example from the PCA9685 manual page 25
 
 func (s *testSuite) TestPrescale() {

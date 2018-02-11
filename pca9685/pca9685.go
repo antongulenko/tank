@@ -180,6 +180,15 @@ func ValuesDelayed(delayTime, onTime float64) (onL, onH, offL, offH byte) {
 	}
 	delayCount := round(delayTime*TIMER_RESOLUTION - 1)
 	onCount := round(onTime * TIMER_RESOLUTION) // The onCount is added to delayCount, so the -1 correction is not required anymore
+	if delayTime == 0 {
+		delayCount = 0
+		if onCount > 0 {
+			onCount-- // Apply -1 correction since delayCount is zero
+		}
+	}
+	if onTime == 0 {
+		onCount = 0
+	}
 
 	on := delayCount
 	off := on + onCount
