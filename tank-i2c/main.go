@@ -291,9 +291,13 @@ func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 flo
 		return err
 	}
 
-	// Set GPIO direction pins
 	state1 := getMotorState(speed1)
 	state2 := getMotorState(speed2)
+	pwm1 := math.Abs(speed1) / 100
+	pwm2 := math.Abs(speed1) / 100
+	log.Printf("Motor 1: dir %v speed %v. Motor 2: dir %v speed %v.", state1, pwm1, state2, pwm2)
+
+	// Set GPIO direction pins
 	gpioByte, err := motorGpioByte(state1, state2)
 	if err != nil {
 		return err
@@ -305,8 +309,8 @@ func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 flo
 
 	// Configure PWM signals
 	pwmValues := make([]byte, 8)
-	pca9685.ValuesInto(math.Abs(speed1)/100, pwmValues)
-	pca9685.ValuesInto(math.Abs(speed2)/100, pwmValues[4:])
+	pca9685.ValuesInto(pwm1, pwmValues)
+	pca9685.ValuesInto(pwm2, pwmValues[4:])
 	log.Println("Setting PWM values for motor 1 and 2...")
 	if err := dev.I2cWrite(pwmAddr, pwmValues...); err != nil {
 		return err
