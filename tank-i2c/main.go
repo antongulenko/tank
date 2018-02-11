@@ -312,6 +312,7 @@ func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 flo
 	pca9685.ValuesInto(pwm1, pwmValues)
 	pca9685.ValuesInto(pwm2, pwmValues[4:])
 	log.Println("Setting PWM values for motor 1 and 2...")
+	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
 	if err := dev.I2cWrite(pwmAddr, pwmValues...); err != nil {
 		return err
 	}
