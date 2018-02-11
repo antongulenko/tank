@@ -294,7 +294,7 @@ func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 flo
 	state1 := getMotorState(speed1)
 	state2 := getMotorState(speed2)
 	pwm1 := math.Abs(speed1) / 100
-	pwm2 := math.Abs(speed1) / 100
+	pwm2 := math.Abs(speed2) / 100
 	log.Printf("Motor 1: dir %v speed %v. Motor 2: dir %v speed %v.", state1, pwm1, state2, pwm2)
 
 	// Set GPIO direction pins
