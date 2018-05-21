@@ -27,6 +27,7 @@ var (
 	}
 	motorSpeed1 = float64(0)
 	motorSpeed2 = float64(0)
+    debugMotors bool
 )
 
 func main() {
@@ -37,6 +38,7 @@ func main() {
 	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
 	flag.Float64Var(&motorSpeed1, "m1", motorSpeed1, "Speed of motor 1 (-100..100)")
 	flag.Float64Var(&motorSpeed2, "m2", motorSpeed2, "Speed of motor 2 (-100..100)")
+	flag.BoolVar(&debugMotors, "debugMotors", false, "Ouput values that would be written, instead of writing them")
 	golib.RegisterLogFlags()
 	flag.Parse()
 	golib.ConfigureLogging()
@@ -302,20 +304,25 @@ func setMotors(dev *ft260.Ft260, gpioAddr byte, pwmAddr byte, speed1, speed2 flo
 	if err != nil {
 		return err
 	}
-	log.Printf("Setting GPIO port B to %02x", gpioByte)
-	if err := dev.I2cWrite(gpioAddr, mcp23017.GPIO_B_PAIRED, gpioByte); err != nil {
-		return err
-	}
+    gpioByteAddr := mcp23017.GPIO_B_PAIRED
+	log.Printf("Setting GPIO port B to %#02x (at addr %#02x)", gpioByte, gpioByteAddr)
+    if !debugMotors {
+        if err := dev.I2cWrite(gpioAddr, gpioByteAddr, gpioByte); err != nil {
+            return err
+        }
+    }
 
 	// Configure PWM signals
 	pwmValues := make([]byte, 8)
 	pca9685.ValuesInto(pwm1, pwmValues)
 	pca9685.ValuesInto(pwm2, pwmValues[4:])
-	log.Println("Setting PWM values for motor 1 and 2...")
 	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
-	if err := dev.I2cWrite(pwmAddr, pwmValues...); err != nil {
-		return err
-	}
+	log.Printf("Setting PWM values for motor 1 and 2 to %#02x...", pwmValues)
+    if !debugMotors {
+        if err := dev.I2cWrite(pwmAddr, pwmValues...); err != nil {
+            return err
+        }
+    }
 
 	return nil
 }
