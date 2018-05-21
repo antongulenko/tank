@@ -2,6 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	"github.com/antongulenko/golib"
 	"github.com/antongulenko/tank/tank"
@@ -58,8 +63,23 @@ func main() {
 	flag.Parse()
 	golib.ConfigureLogging()
 
-	defer t.Motors.Set(0, 0)
-	defer t.Cleanup()
+	// "Clean" shutdown with Ctrl-C signal
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			t.Motors.Set(0, 0)
+			t.Cleanup()
+		})
+	}
+	defer cleanup()
+	go func() {
+		fmt.Println("Received signal", <-c)
+		cleanup()
+		os.Exit(0)
+	}()
+
 	golib.Checkerr(t.Setup())
 	golib.Checkerr(t.Motors.Init())
 	log.Println("Successfully initialized USB/I2C peripherals, now connecting joystick...")
