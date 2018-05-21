@@ -1,0 +1,11 @@
+[Unit]
+Description=Broadcast own IP address over all configured network interfaces
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/anton/go/tank/scripts/broadcast-address.sh
+
+[Install]
+WantedBy=multi-user.target
+

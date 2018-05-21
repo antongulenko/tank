@@ -1,10 +1,23 @@
 #!/bin/bash
 
-search_root='/home/anton/test'
+search_root='/home/anton/wifi-credentials'
 file_name='wifi-credentials*.txt'
-ip_output_suffix="_ips.txt"
 declare -A connect_attempts
-max_attempts=2
+max_attempts=3
+
+mount_target="$search_root/mounts"
+mount_devices='.*/mmcblk[0-9]+p[0-9]+'
+mount_search='/dev'
+function try_mounts() {
+    for i in `find "$mount_search" -regex "$mount_devices"`; do
+        if ! mount | grep "$i" &> /dev/null; then
+            target="$mount_target/$(basename "$i")"
+            mkdir -p "$target"
+            echo "Trying to mount $i to $target..."
+            mount "$i" "$target"
+        fi
+    done
+}
 
 function do_connect() {
     ssid="$1"
@@ -52,15 +65,12 @@ function check_wifi_credentials() {
             ssid="${lines[0]}"
             password="${lines[1]}"
             do_connect "$ssid" "$password"
-
-            output_file="$i$ip_output_suffix"
-            echo "Writing current IP addresses to $output_file..."
-            type ip &> /dev/null && ip a > "$output_file" || ifconfig -a > "$output_file"
         fi
     done
 }
 
 while true; do
+    try_mounts
     check_wifi_credentials
     sleep 3
 done
