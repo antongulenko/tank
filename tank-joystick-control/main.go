@@ -58,6 +58,7 @@ func main() {
 	flag.Parse()
 	golib.ConfigureLogging()
 
+	defer t.Motors.Set(0, 0)
 	defer t.Cleanup()
 	golib.Checkerr(t.Setup())
 	golib.Checkerr(t.Motors.Init())
