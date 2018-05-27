@@ -189,7 +189,11 @@ func (m *motor) handleAxis(event joysticks.Event) {
 	}
 	min := float32(m.minSpeed)
 	if min > 0 && min < 1 {
-		val = min + (1-min)*val
+		if val < 0 {
+			val = -min + (1-min)*val
+		} else {
+			val = min + (1-min)*val
+		}
 	}
 	m.position = val
 	adjuster.notifyChangedPosition()
