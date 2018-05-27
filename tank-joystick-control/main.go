@@ -68,6 +68,7 @@ func main() {
 	minSpeed := flag.Float64("minSpeed", 0, "Minimum speed for all motors and directions")
 	flag.DurationVar(&adjuster.sleepTime, "adjustSleep", adjuster.sleepTime, "Time to sleep between motor adjustments")
 	flag.DurationVar(&adjuster.maxSlopeTime, "maxSlopeTime", adjuster.maxSlopeTime, "Maximum time for a motor to ramp up between 0% and 100%")
+	flag.BoolVar(&adjuster.dummyMode, "dummy", false, "Dummy mode: do not use USB/I2C peripherals, just print motor values")
 	left.registerFlags()
 	right.registerFlags()
 	t.RegisterFlags()
@@ -83,11 +84,11 @@ func main() {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			// TODO fix synchronization, cleanly stop the adjuster routine
-			adjuster.left = 0
-			adjuster.right = 0
-			t.Motors.Set(0, 0)
-			t.Cleanup()
+			adjuster.stop()
+			if !adjuster.dummyMode {
+				t.Motors.Set(0, 0)
+				t.Cleanup()
+			}
 		})
 	}
 	defer cleanup()
@@ -97,9 +98,13 @@ func main() {
 		os.Exit(0)
 	}()
 
-	golib.Checkerr(t.Setup())
-	golib.Checkerr(t.Motors.Init())
-	log.Println("Successfully initialized USB/I2C peripherals, now connecting joystick...")
+	if adjuster.dummyMode {
+		log.Println("Dummy mode: not connecting USB/I2C peripherals")
+	} else {
+		golib.Checkerr(t.Setup())
+		golib.Checkerr(t.Motors.Init())
+		log.Println("Successfully initialized USB/I2C peripherals, now connecting joystick...")
+	}
 
 	js := joysticks.Connect(index)
 	if js == nil {
@@ -132,25 +137,45 @@ type speedAdjuster struct {
 	adjustCond   *sync.Cond
 	sleepTime    time.Duration
 	maxSlopeTime time.Duration
+	dummyMode    bool
 
 	// Current position
 	left  float32
 	right float32
+
+	stopFlag bool
 }
 
 func (a *speedAdjuster) adjustSpeedLoop() {
-	for {
+	for !a.stopFlag {
 		// Wait for incorrect position of any motor
 		a.adjustCond.L.Lock()
-		for a.left == left.position && a.right == right.position {
+		for a.left == left.position && a.right == right.position && !a.stopFlag {
 			a.adjustCond.Wait()
 		}
 		a.adjustCond.L.Unlock()
-		a.adjustSpeed(&left, &a.left)
-		a.adjustSpeed(&right, &a.right)
-		golib.Printerr(t.Motors.Set(float64(left.position*100), float64(right.position*100)))
-		time.Sleep(a.sleepTime)
+		if !a.stopFlag {
+			a.adjustSpeed(&left, &a.left)
+			a.adjustSpeed(&right, &a.right)
+			leftPos := float64(a.left * 100)
+			rightPos := float64(a.right * 100)
+			if !a.dummyMode {
+				golib.Printerr(t.Motors.Set(leftPos, rightPos))
+			} else {
+				log.Printf("Setting motors to left: %v right: %v", leftPos, rightPos)
+			}
+			time.Sleep(a.sleepTime)
+		}
 	}
+}
+
+func (a *speedAdjuster) stop() {
+	a.adjustCond.L.Lock()
+	a.left = 0
+	a.right = 0
+	a.stopFlag = true
+	a.adjustCond.Broadcast()
+	a.adjustCond.L.Unlock()
 }
 
 func (a *speedAdjuster) adjustSpeed(m *motor, current *float32) {
