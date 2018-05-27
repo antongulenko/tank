@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"sync"
@@ -33,9 +34,10 @@ var (
 		invert:   true,
 	}
 	adjuster = speedAdjuster{
-		adjustCond:   sync.NewCond(new(sync.Mutex)),
-		sleepTime:    50 * time.Millisecond,
-		maxSlopeTime: 500 * time.Millisecond,
+		adjustCond: sync.NewCond(new(sync.Mutex)),
+		sleepTime:  50 * time.Millisecond,
+		decelStep:  0.1, // Step when accelerating
+		accelStep:  0.1, // Step when decelerating
 	}
 )
 
@@ -47,6 +49,9 @@ type motor struct {
 
 	// Positions between these values are bound to zero
 	zeroFrom, zeroTo float64
+
+	// If true, scale the value range to adjust for zeroFrom/zeroTo and make the entire value range -1..1 available
+	scaleZeroFromTo bool
 
 	// The smallest speed will be translated to this, speed scaled linearly between this and 100%
 	minSpeed float64
@@ -67,7 +72,9 @@ func main() {
 	flag.IntVar(&index, "js", 1, "Joystick device index")
 	minSpeed := flag.Float64("minSpeed", 0, "Minimum speed for all motors and directions")
 	flag.DurationVar(&adjuster.sleepTime, "adjustSleep", adjuster.sleepTime, "Time to sleep between motor adjustments")
-	flag.DurationVar(&adjuster.maxSlopeTime, "maxSlopeTime", adjuster.maxSlopeTime, "Maximum time for a motor to ramp up between 0% and 100%")
+	accelSlopeTime := flag.Duration("accelSlopeTime", 400*time.Millisecond, "Maximum time for a motor to ramp up between 0% and 100%")
+	decelSlopeTime := flag.Duration("decelSlopeTime", 300*time.Millisecond, "Maximum time for a motor to ramp down between 100% and 0%")
+	scaleZeroFromTo := flag.Bool("scaleZeroFromTo", true, "Can be used to disable the value range adjustment after filtering based on zeroFrom/zeroTo")
 	flag.BoolVar(&adjuster.dummyMode, "dummy", false, "Dummy mode: do not use USB/I2C peripherals, just print motor values")
 	left.registerFlags()
 	right.registerFlags()
@@ -77,6 +84,10 @@ func main() {
 	golib.ConfigureLogging()
 	left.minSpeed = *minSpeed
 	right.minSpeed = *minSpeed
+	left.scaleZeroFromTo = *scaleZeroFromTo
+	right.scaleZeroFromTo = *scaleZeroFromTo
+	adjuster.accelStep = float32(adjuster.sleepTime) / float32(*accelSlopeTime)
+	adjuster.decelStep = float32(adjuster.sleepTime) / float32(*decelSlopeTime)
 
 	// "Clean" shutdown with Ctrl-C signal
 	c := make(chan os.Signal, 1)
@@ -134,10 +145,11 @@ func main() {
 }
 
 type speedAdjuster struct {
-	adjustCond   *sync.Cond
-	sleepTime    time.Duration
-	maxSlopeTime time.Duration
-	dummyMode    bool
+	adjustCond *sync.Cond
+	sleepTime  time.Duration
+	accelStep  float32
+	decelStep  float32
+	dummyMode  bool
 
 	// Current position
 	left  float32
@@ -179,17 +191,21 @@ func (a *speedAdjuster) stop() {
 }
 
 func (a *speedAdjuster) adjustSpeed(m *motor, current *float32) {
-	adjustStep := float32(a.sleepTime) / float32(a.maxSlopeTime)
 	cur := *current
-	diff := cur - m.position
-	if diff < 0 {
-		diff = -diff
+	forward := cur > 0             // Currently driving forward
+	increasing := m.position > cur // Target momentum is more forward-oriented than currently
+
+	adjustStep := a.decelStep
+	if forward == increasing {
+		adjustStep = a.accelStep
 	}
-	if diff < adjustStep {
+	if !increasing {
+		adjustStep = -adjustStep
+	}
+
+	if math.Abs(float64(cur-m.position)) <= math.Abs(float64(adjustStep)) {
 		*current = m.position
-	} else if m.position < cur {
-		*current = cur - adjustStep
-	} else if m.position > cur {
+	} else {
 		*current = cur + adjustStep
 	}
 }
@@ -209,11 +225,20 @@ func (m *motor) handleAxis(event joysticks.Event) {
 	if m.invert {
 		val = -val
 	}
-	if float64(val) >= m.zeroFrom && float64(val) <= m.zeroTo {
+	zeroFrom := float32(m.zeroFrom)
+	zeroTo := float32(m.zeroTo)
+	if val >= zeroFrom && val <= zeroTo {
 		val = 0
+	} else if m.scaleZeroFromTo {
+		// Scale the value range from [-1..zeroFrom] and [zeroTo..0] to [-1..0] and [0..1]
+		if val > 0 {
+			val = (val - zeroTo) / (1 - zeroTo)
+		} else if val < 0 {
+			val = (zeroFrom - val) / (-1 - zeroFrom)
+		}
 	}
 	min := float32(m.minSpeed)
-	if min > 0 && min < 1 {
+	if min > 0 && min < 1 && val != 0 {
 		if val < 0 {
 			val = -min + (1-min)*val
 		} else {
