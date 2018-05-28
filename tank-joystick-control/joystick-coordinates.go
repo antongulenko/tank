@@ -14,7 +14,8 @@ type JoystickAxis struct {
 	// TODO individual values for x/y axes
 	ZeroFrom, ZeroTo float64
 
-	Invert bool
+	SingleInvertFlag bool
+	InvertX, InvertY bool
 
 	// If true, scale the value range to adjust for zeroFrom/zeroTo and make the entire value range -1..1 available
 	ScaleZeroFromTo bool
@@ -22,10 +23,16 @@ type JoystickAxis struct {
 
 func (m *JoystickAxis) RegisterFlags(prefix string, desc string) {
 	flag.IntVar(&m.AxisNumber, prefix, m.AxisNumber, "Index for joystick axis for "+desc)
-	flag.BoolVar(&m.Invert, prefix+"Invert", m.Invert, "Invert axis direction of "+desc)
 	flag.Float64Var(&m.ZeroFrom, prefix+"ZeroFrom", m.ZeroFrom, "Start of the zero interval of "+desc)
 	flag.Float64Var(&m.ZeroTo, prefix+"ZeroTo", m.ZeroTo, "End of the zero interval of "+desc)
 	flag.BoolVar(&m.ScaleZeroFromTo, prefix+"ScaleZeroFromTo", m.ScaleZeroFromTo, "Can be used to disable the value range adjustment after filtering based on zeroFrom/zeroTo for "+desc)
+
+	if m.SingleInvertFlag {
+		flag.BoolVar(&m.InvertX, prefix+"Invert", m.InvertX, "Invert axis direction of "+desc)
+	} else {
+		flag.BoolVar(&m.InvertX, prefix+"InvertX", m.InvertX, "Invert X axis direction of "+desc)
+		flag.BoolVar(&m.InvertY, prefix+"InvertY", m.InvertY, "Invert Y axis direction of "+desc)
+	}
 }
 
 func (a *JoystickAxis) Notify(js *joysticks.HID, hook func(x, y float32)) {
@@ -37,10 +44,10 @@ func (a *JoystickAxis) Notify(js *joysticks.HID, hook func(x, y float32)) {
 		for event := range moved {
 			coords := event.(joysticks.CoordsEvent)
 			x, y := coords.X, coords.Y
-			if a.Invert {
+			if a.InvertX {
 				x = -x
 			}
-			if a.Invert {
+			if a.InvertY || (a.SingleInvertFlag && a.InvertX) {
 				y = -y
 			}
 			x, y = a.convert(x), a.convert(y)

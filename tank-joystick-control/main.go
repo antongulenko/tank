@@ -17,28 +17,30 @@ import (
 )
 
 func main() {
+	leftAxis := JoystickAxis{
+		AxisNumber:       1,
+		ZeroFrom:         -0.2,
+		ZeroTo:           0.1,
+		ScaleZeroFromTo:  true,
+		InvertX:          true,
+		SingleInvertFlag: true,
+	}
+	rightAxis := leftAxis
+	rightAxis.AxisNumber = 3
 	directController := DirectMotorController{
 		LeftAxis: JoystickAxisOneDimension{
-			JoystickAxis: JoystickAxis{
-				AxisNumber:      1,
-				ZeroFrom:        -0.2,
-				ZeroTo:          0.1,
-				ScaleZeroFromTo: true,
-				Invert:          true,
-			},
-			UseY: true,
+			JoystickAxis: leftAxis,
+			UseY:         true,
 		},
 		RightAxis: JoystickAxisOneDimension{
-			JoystickAxis: JoystickAxis{
-				AxisNumber:      3,
-				ZeroFrom:        -0.2,
-				ZeroTo:          0.1,
-				ScaleZeroFromTo: true,
-				Invert:          true,
-			},
-			UseY: false,
+			JoystickAxis: rightAxis,
+			UseY:         false,
 		},
 	}
+	singleStickController := OneStickMotorController{
+		Axis: leftAxis,
+	}
+	singleStickController.Axis.SingleInvertFlag = false
 	adjuster := speedAdjuster{
 		tank:           tank.DefaultTank,
 		adjustCond:     sync.NewCond(new(sync.Mutex)),
@@ -48,9 +50,10 @@ func main() {
 		dummyMode:      false,
 	}
 
-	var index int
-	flag.IntVar(&index, "js", 1, "Joystick device index")
+	joystickIndex := flag.Int("js", 1, "Joystick device index")
+	useSingleTick := flag.Bool("singleStick", false, "Use single stick for controlling motors")
 	adjuster.registerFlags()
+	singleStickController.RegisterFlags()
 	directController.RegisterFlags()
 	golib.RegisterFlags(golib.FlagsAll)
 	flag.Parse()
@@ -73,15 +76,19 @@ func main() {
 	}()
 
 	adjuster.setup()
-	js := joysticks.Connect(index)
+	js := joysticks.Connect(*joystickIndex)
 	if js == nil {
-		log.Fatalln("Failed to open joystick with index", index)
+		log.Fatalln("Failed to open joystick with index", *joystickIndex)
 	}
 	log.Printf("Opened device index %v (%v buttons, %v axes, %v events)",
-		index, len(js.Buttons), len(js.HatAxes), len(js.Events))
+		*joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
 
 	go adjuster.adjustSpeedLoop()
-	directController.Setup(js, &adjuster.left, &adjuster.right)
+	if *useSingleTick {
+		singleStickController.Setup(js, &adjuster.left, &adjuster.right)
+	} else {
+		directController.Setup(js, &adjuster.left, &adjuster.right)
+	}
 	js.ParcelOutEvents() // Does not return
 }
 
@@ -93,7 +100,6 @@ type Motor struct {
 
 func (m *Motor) SetSpeed(val float32) {
 	m.target = val
-	// TODO do not use global variable
 	m.adjuster.notifyChangedPosition()
 }
 
@@ -123,8 +129,14 @@ func (a *speedAdjuster) registerFlags() {
 }
 
 func (a *speedAdjuster) adjustSpeedLoop() {
-	accelStep := float32(a.sleepTime) / float32(a.accelSlopeTime)
-	decelStep := float32(a.sleepTime) / float32(a.decelSlopeTime)
+	accelStep := float32(math.MaxFloat32)
+	decelStep := float32(math.MaxFloat32)
+	if a.accelSlopeTime > 0 {
+		accelStep = float32(a.sleepTime) / float32(a.accelSlopeTime)
+	}
+	if a.decelSlopeTime > 0 {
+		decelStep = float32(a.sleepTime) / float32(a.decelSlopeTime)
+	}
 	for !a.stopFlag {
 		// Wait for incorrect position of any motor
 		a.adjustCond.L.Lock()
@@ -144,6 +156,26 @@ func (a *speedAdjuster) adjustSpeedLoop() {
 			}
 			time.Sleep(a.sleepTime)
 		}
+	}
+}
+
+func (a *speedAdjuster) adjustSpeed(m *Motor, accelStep, decelStep float32) {
+	cur := m.current
+	forward := cur > 0           // Currently driving forward
+	increasing := m.target > cur // Target momentum is more forward-oriented than currently
+
+	adjustStep := decelStep
+	if forward == increasing {
+		adjustStep = accelStep
+	}
+	if !increasing {
+		adjustStep = -adjustStep
+	}
+
+	if math.Abs(float64(cur-m.target)) <= math.Abs(float64(adjustStep)) {
+		m.current = m.target
+	} else {
+		m.current = cur + adjustStep
 	}
 }
 
@@ -176,6 +208,7 @@ func (a *speedAdjuster) setup() {
 
 func (a *speedAdjuster) stop() {
 	a.adjustCond.L.Lock()
+	defer a.adjustCond.L.Unlock()
 	if !a.dummyMode {
 		a.tank.Motors.Set(0, 0)
 		a.tank.Cleanup()
@@ -186,31 +219,10 @@ func (a *speedAdjuster) stop() {
 	a.right.target = 0
 	a.stopFlag = true
 	a.adjustCond.Broadcast()
-	a.adjustCond.L.Unlock()
-}
-
-func (a *speedAdjuster) adjustSpeed(m *Motor, accelStep, decelStep float32) {
-	cur := m.current
-	forward := cur > 0           // Currently driving forward
-	increasing := m.target > cur // Target momentum is more forward-oriented than currently
-
-	adjustStep := decelStep
-	if forward == increasing {
-		adjustStep = accelStep
-	}
-	if !increasing {
-		adjustStep = -adjustStep
-	}
-
-	if math.Abs(float64(cur-m.target)) <= math.Abs(float64(adjustStep)) {
-		m.current = m.target
-	} else {
-		m.current = cur + adjustStep
-	}
 }
 
 func (a *speedAdjuster) notifyChangedPosition() {
 	a.adjustCond.L.Lock()
+	defer a.adjustCond.L.Unlock()
 	a.adjustCond.Broadcast()
-	a.adjustCond.L.Unlock()
 }
