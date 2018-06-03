@@ -3,12 +3,13 @@ package tank
 import (
 	"math"
 
+	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/pca9685"
 	log "github.com/sirupsen/logrus"
 )
 
 type MainMotors struct {
-	tank *Tank
+	bus ft260.I2cBus
 
 	I2cAddr byte
 
@@ -23,7 +24,7 @@ type MainMotors struct {
 
 func (m *MainMotors) Init() error {
 	log.Printf("Initializing motor PWM driver at %02x...", m.I2cAddr)
-	return m.tank.I2cWrite(m.I2cAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI)
+	return m.bus.I2cWrite(m.I2cAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI)
 }
 
 func (m *MainMotors) ForceSet(left, right float64) error {
@@ -61,5 +62,5 @@ func (m *MainMotors) Set(left, right float64) error {
 	log.Printf("Setting motors to %.2f%% (%v) and %.2f%% (%v) (Sending %v byte to PWM device)",
 		leftSpeed*100, dirToText(leftDir), rightSpeed*100, dirToText(rightDir), len(pwmValues))
 
-	return m.tank.I2cWrite(m.I2cAddr, pwmValues...)
+	return m.bus.I2cWrite(m.I2cAddr, pwmValues...)
 }

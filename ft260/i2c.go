@@ -164,7 +164,17 @@ func (d *Ft260) i2cWait(busBusy bool) error {
 	}
 }
 
-func (d *Ft260) I2cScan() ([]byte, error) {
+type I2cBus interface {
+	I2cWrite(addr byte, data ...byte) error
+	I2cRead(addr byte, data []byte) error
+	I2cWriteRead(addr byte, out, in []byte) error
+	I2cGet(addr byte, registerAddr byte, size int) ([]byte, error)
+}
+
+type I2cScanner struct {
+}
+
+func I2cScan(bus I2cBus) ([]byte, error) {
 	// Reserved addresses (https://www.i2c-bus.org/addressing):
 	// 0x00: start byte, general call
 	// 0x01: CBUS Address
@@ -174,18 +184,18 @@ func (d *Ft260) I2cScan() ([]byte, error) {
 	// <<----------------------------------- Normal address range (112 addresses)
 	// 0x78 - 0x7B: 10 bit slave addressing
 	// 0x7C - 0x7F: Future purposes
-	return d.I2cScanRange(0x08, 0x77)
+	return I2cScanRange(bus, 0x08, 0x77)
 }
 
 const i2c_status_error_mask = I2C_StatusError | I2C_StatusNoSlaveAck | I2C_StatusNoDataAck | I2C_StatusArbitrationLost
 
-func (d *Ft260) I2cScanRange(from, to byte) ([]byte, error) {
+func I2cScanRange(bus I2cBus, from, to byte) ([]byte, error) {
 	var slaves []byte
 	if from > to {
 		return nil, fmt.Errorf("Illegal address scan range %v - %v", from, to)
 	}
 	for addr := from; addr <= to; addr++ {
-		err := d.I2cRead(addr, []byte{0})
+		err := bus.I2cRead(addr, []byte{0})
 		if err != nil {
 			if i2cErr, ok := err.(*I2cError); ok {
 				if !i2cErr.TimedOut &&

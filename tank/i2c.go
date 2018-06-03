@@ -3,6 +3,7 @@ package tank
 import (
 	"sync"
 
+	"github.com/antongulenko/tank/ft260"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -109,4 +110,8 @@ func (t *Tank) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
 	}
 	t.I2cRequest(req)
 	return req.DataRead, req.Error
+}
+
+func (t *Tank) I2cScan() ([]byte, error) {
+	return ft260.I2cScan(t)
 }

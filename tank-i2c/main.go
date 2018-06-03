@@ -24,7 +24,7 @@ var (
 	}
 	motorSpeed1 = float64(0)
 	motorSpeed2 = float64(0)
-    debugMotors bool
+	debugMotors bool
 )
 
 func main() {
@@ -52,7 +52,7 @@ func doMain() error {
 		// Nothing
 		return nil
 	case "scan":
-		slaves, err := t.Usb.I2cScan()
+		slaves, err := t.I2cScan()
 		if err != nil {
 			return err
 		}
@@ -73,7 +73,7 @@ func doMain() error {
 
 func gpioSpeedTest(addr byte) error {
 	log.Printf("Configuring GPIO extension %02x", addr)
-	if err := t.Usb.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
+	if err := t.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
 		return err
 	}
 
@@ -83,7 +83,7 @@ func gpioSpeedTest(addr byte) error {
 	log.Println("Measuring write...")
 	writeData := append([]byte{0}, data...)
 	err := bench(func() (int, error) {
-		err := t.Usb.I2cWrite(addr, writeData...)
+		err := t.I2cWrite(addr, writeData...)
 		return len(data), err
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func gpioSpeedTest(addr byte) error {
 	}
 
 	// Read the last byte to set the read address to the first position
-	if b, err := t.Usb.I2cGet(addr, byte(len(data)-1), 1); err != nil {
+	if b, err := t.I2cGet(addr, byte(len(data)-1), 1); err != nil {
 		return err
 	} else {
 		expect := []byte{data[len(data)-1]}
@@ -106,7 +106,7 @@ func gpioSpeedTest(addr byte) error {
 	copy(expectedReadData, data)
 	copy(expectedReadData[len(data):], data)
 	err = bench(func() (int, error) {
-		err := t.Usb.I2cRead(addr, receive)
+		err := t.I2cRead(addr, receive)
 		return len(receive), err
 	})
 	if !bytes.Equal(expectedReadData, receive) {
@@ -140,12 +140,12 @@ const gpioConfig = mcp23017.IOCON_BIT_INTPOL | mcp23017.IOCON_BIT_HAEN
 
 func initGpio(addr byte) error {
 	log.Printf("Configuring GPIO extension %02x", addr)
-	if err := t.Usb.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
+	if err := t.I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
 		return err
 	}
 
 	log.Println("Enabling Ports A and B as output")
-	if err := t.Usb.I2cWrite(addr, mcp23017.IODIR_PAIRED, mcp23017.OUTPUT, mcp23017.OUTPUT); err != nil {
+	if err := t.I2cWrite(addr, mcp23017.IODIR_PAIRED, mcp23017.OUTPUT, mcp23017.OUTPUT); err != nil {
 		return err
 	}
 	return nil
@@ -158,10 +158,10 @@ func gpioTest(addr byte) error {
 
 	val := byte(0xFF)
 	for {
-		if err := t.Usb.I2cWrite(addr, mcp23017.GPIO_PAIRED, val, val); err != nil {
+		if err := t.I2cWrite(addr, mcp23017.GPIO_PAIRED, val, val); err != nil {
 			return err
 		}
-		if values, err := t.Usb.I2cGet(addr, mcp23017.GPIO_PAIRED, 2); err != nil {
+		if values, err := t.I2cGet(addr, mcp23017.GPIO_PAIRED, 2); err != nil {
 			return err
 		} else {
 			log.Println("Port values:", values)
@@ -205,13 +205,13 @@ func setMotors(gpioAddr byte, speed1, speed2 float64) error {
 	if err != nil {
 		return err
 	}
-    gpioByteAddr := mcp23017.GPIO_B_PAIRED
+	gpioByteAddr := mcp23017.GPIO_B_PAIRED
 	log.Printf("Setting GPIO port B to %#02x (at addr %#02x)", gpioByte, gpioByteAddr)
-    if !debugMotors {
-        if err := t.Usb.I2cWrite(gpioAddr, gpioByteAddr, gpioByte); err != nil {
-            return err
-        }
-    }
+	if !debugMotors {
+		if err := t.I2cWrite(gpioAddr, gpioByteAddr, gpioByte); err != nil {
+			return err
+		}
+	}
 
 	pwmAddr := pca9685.ADDRESS
 
@@ -221,11 +221,11 @@ func setMotors(gpioAddr byte, speed1, speed2 float64) error {
 	pca9685.ValuesInto(pwm2, pwmValues[4:])
 	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
 	log.Printf("Setting PWM values for motor 1 and 2 to %#02x...", pwmValues)
-    if !debugMotors {
-        if err := t.Usb.I2cWrite(pwmAddr, pwmValues...); err != nil {
-            return err
-        }
-    }
+	if !debugMotors {
+		if err := t.I2cWrite(pwmAddr, pwmValues...); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

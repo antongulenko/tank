@@ -57,7 +57,7 @@ func (t *Tank) Setup() error {
 		return err
 	}
 	t.usb = usb
-	t.Motors.tank = t
+	t.Motors.bus = t
 
 	// Configure and validate system settings
 	if err := t.validateFt260ChipCode(); err != nil {
