@@ -49,7 +49,7 @@ func main() {
 		SingleStick: OneStickMotorController{
 			AxisX: JoystickAxisOneDimension{
 				JoystickAxis: leftAxis,
-				UseY:         true,
+				UseY:         false,
 			},
 			AxisY: JoystickAxisOneDimension{
 				JoystickAxis: leftAxis,
@@ -57,7 +57,6 @@ func main() {
 			},
 		},
 	}
-	controller.SingleStick.AxisX.AxisNumber = 2
 
 	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)

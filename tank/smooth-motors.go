@@ -74,7 +74,7 @@ func (a *SmoothTank) Left() Motor {
 }
 
 func (a *SmoothTank) Right() Motor {
-	return &a.left
+	return &a.right
 }
 
 func (a *SmoothTank) adjustSpeedLoop() {
