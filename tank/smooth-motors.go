@@ -2,7 +2,6 @@ package tank
 
 import (
 	"flag"
-	"log"
 	"math"
 	"sync"
 	"time"
@@ -30,7 +29,6 @@ type SmoothTank struct {
 	SleepTime      time.Duration
 	AccelSlopeTime time.Duration
 	DecelSlopeTime time.Duration
-	DummyMode      bool
 	MinSpeed       float64
 
 	left  SmoothMotor
@@ -46,31 +44,23 @@ func (a *SmoothTank) RegisterFlags() {
 	flag.DurationVar(&a.SleepTime, "adjustSleep", a.SleepTime, "Time to sleep between motor adjustments")
 	flag.DurationVar(&a.AccelSlopeTime, "accelSlopeTime", a.AccelSlopeTime, "Maximum time for a motor to ramp up between 0% and 100%")
 	flag.DurationVar(&a.DecelSlopeTime, "decelSlopeTime", a.DecelSlopeTime, "Maximum time for a motor to ramp down between 100% and 0%")
-	flag.BoolVar(&a.DummyMode, "dummy", a.DummyMode, "Dummy mode: do not use USB/I2C peripherals, just print motor values")
 }
 
-func (a *SmoothTank) Start() {
+func (a *SmoothTank) Setup() error {
 	a.adjustCond = sync.NewCond(new(sync.Mutex))
 	a.left.tank = a
 	a.right.tank = a
-	if a.DummyMode {
-		log.Println("Dummy mode: not connecting USB/I2C peripherals")
-	} else {
-		golib.Checkerr(a.Tank.Setup())
-		golib.Checkerr(a.Tank.Motors.Init())
-		golib.Checkerr(a.Tank.Leds.Init())
-		log.Println("Successfully initialized USB/I2C peripherals")
+	if err := a.Tank.Setup(); err != nil {
+		return err
 	}
 	go a.adjustSpeedLoop()
+	return nil
 }
 
 func (a *SmoothTank) Stop() {
 	a.adjustCond.L.Lock()
 	defer a.adjustCond.L.Unlock()
-	if !a.DummyMode {
-		a.Tank.Motors.Set(0, 0)
-		a.Tank.Cleanup()
-	}
+	a.Tank.Cleanup()
 	a.left.current = 0
 	a.left.target = 0
 	a.right.current = 0
@@ -108,11 +98,7 @@ func (a *SmoothTank) adjustSpeedLoop() {
 			a.adjustSpeed(&a.right, accelStep, decelStep)
 			leftPos := a.calcSpeed(a.left.current)
 			rightPos := a.calcSpeed(a.right.current)
-			if !a.DummyMode {
-				golib.Printerr(a.Tank.Motors.Set(leftPos, rightPos))
-			} else {
-				log.Printf("Setting motors to left: %v right: %v", leftPos, rightPos)
-			}
+			golib.Printerr(a.Tank.Motors.Set(leftPos, rightPos))
 			time.Sleep(a.SleepTime)
 		}
 	}

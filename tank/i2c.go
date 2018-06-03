@@ -123,3 +123,22 @@ func (t *sequencedI2cBus) I2cGet(addr byte, registerAddr byte, size int) ([]byte
 	t.I2cRequest(req)
 	return req.DataRead, req.Error
 }
+
+type dummyI2cBus struct {
+}
+
+func (d *dummyI2cBus) I2cWrite(addr byte, data ...byte) error {
+	return nil
+}
+
+func (d *dummyI2cBus) I2cRead(addr byte, data []byte) error {
+	return nil
+}
+
+func (d *dummyI2cBus) I2cWriteRead(addr byte, out, in []byte) error {
+	return nil
+}
+
+func (d *dummyI2cBus) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
+	return nil, nil
+}

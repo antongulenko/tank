@@ -9,6 +9,7 @@ import (
 	"github.com/antongulenko/hid"
 	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/pca9685"
+	log "github.com/sirupsen/logrus"
 )
 
 var DefaultTank = Tank{
@@ -22,7 +23,7 @@ var DefaultTank = Tank{
 		InvertRightDir: false,
 	},
 	Leds: MainLeds{
-		I2cAddr:  pca9685.ADDRESS + 8, // A3 pin set
+		I2cAddr:  pca9685.ADDRESS + 4, // A2 pin set
 		PwmStart: pca9685.LED0,
 	},
 }
@@ -32,6 +33,7 @@ type Tank struct {
 	I2cFreq         uint
 	I2cRequestQueue int
 	NoI2cSequencer  bool
+	Dummy           bool
 
 	Motors MainMotors
 	Leds   MainLeds
@@ -44,42 +46,60 @@ func (t *Tank) RegisterFlags() {
 	flag.StringVar(&t.UsbDevice, "dev", t.UsbDevice, "Specify a USB path for FT260")
 	flag.UintVar(&t.I2cFreq, "freq", t.I2cFreq, "The I2C bus frequency (60 - 3400)")
 	flag.BoolVar(&t.NoI2cSequencer, "no-i2c-sequencer", t.NoI2cSequencer, "Disable the extra goroutine for sequencing I2C commands")
+	flag.BoolVar(&t.Motors.Dummy, "dummy-motors", t.Motors.Dummy, "Disable real motor control, only output commands")
+	flag.BoolVar(&t.Leds.Dummy, "dummy-leds", t.Leds.Dummy, "Disable real led control, only output values")
+	flag.BoolVar(&t.Dummy, "dummy", t.Dummy, "Disable USB/I2C peripherals")
 }
 
 func (t *Tank) Setup() error {
-	t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
-	if !t.NoI2cSequencer {
-		go t.sequencer.handleI2cRequests()
-	}
+	if t.Dummy {
+		log.Println("Dummy tank: skipping initialization of USB/I2C peripherals")
+		t.Leds.Dummy = true
+		t.Motors.Dummy = true
+	} else {
+		t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
+		if !t.NoI2cSequencer {
+			go t.sequencer.handleI2cRequests()
+		}
 
-	// Prepare Usb HID library, open FT260 device
-	if err := hid.Init(); err != nil {
-		return err
-	}
-	usb, err := ft260.OpenPath(t.UsbDevice)
-	if err != nil {
-		return err
-	}
-	t.usb = usb
-	t.sequencer.usb = usb
-	t.Motors.bus = t.Bus()
-	t.Leds.bus = t.Bus()
+		// Prepare Usb HID library, open FT260 device
+		if err := hid.Init(); err != nil {
+			return err
+		}
+		usb, err := ft260.OpenPath(t.UsbDevice)
+		if err != nil {
+			return err
+		}
+		t.usb = usb
+		t.sequencer.usb = t.usb
+		t.Motors.bus = t.Bus()
+		t.Leds.bus = t.Bus()
 
-	// Configure and validate system settings
-	if err := t.validateFt260ChipCode(); err != nil {
+		// Configure and validate system settings
+		if err := t.validateFt260ChipCode(); err != nil {
+			return err
+		}
+		if err := t.configureFt260(); err != nil {
+			return err
+		}
+		if err := t.validateFt260(); err != nil {
+			return err
+		}
+	}
+	if err := t.Motors.Init(); err != nil {
 		return err
 	}
-	if err := t.configureFt260(); err != nil {
+	if err := t.Leds.Init(); err != nil {
 		return err
 	}
-	if err := t.validateFt260(); err != nil {
-		return err
-	}
+	log.Println("Successfully initialized USB/I2C peripherals")
 	return nil
 }
 
 func (t *Tank) Bus() ft260.I2cBus {
-	if t.NoI2cSequencer {
+	if t.Dummy {
+		return new(dummyI2cBus)
+	} else if t.NoI2cSequencer {
 		return t.usb
 	} else {
 		return &t.sequencer
@@ -87,6 +107,8 @@ func (t *Tank) Bus() ft260.I2cBus {
 }
 
 func (t *Tank) Cleanup() {
+	t.Motors.Set(0, 0)
+	t.Leds.DisableAll()
 	golib.Printerr(hid.Shutdown())
 	golib.Printerr(t.usb.Close())
 }

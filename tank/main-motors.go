@@ -12,6 +12,7 @@ type MainMotors struct {
 	bus ft260.I2cBus
 
 	I2cAddr byte
+	Dummy   bool
 
 	InvertRightDir, InvertLeftDir bool
 
@@ -23,8 +24,13 @@ type MainMotors struct {
 }
 
 func (m *MainMotors) Init() error {
-	log.Printf("Initializing motor PWM driver at %02x...", m.I2cAddr)
-	return m.bus.I2cWrite(m.I2cAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI)
+	if m.Dummy {
+		log.Println("Skipping initialization of dummy motors")
+		return nil
+	} else {
+		log.Printf("Initializing motor PWM driver at %02x...", m.I2cAddr)
+		return m.bus.I2cWrite(m.I2cAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI)
+	}
 }
 
 func (m *MainMotors) ForceSet(left, right float64) error {
@@ -52,6 +58,10 @@ func (m *MainMotors) Set(left, right float64) error {
 	}
 	pwmValues := m.pwmOutput.Update(m.PwmStart, newState)
 
+	dummyText := ""
+	if m.Dummy {
+		dummyText = "dummy "
+	}
 	dirToText := func(dir bool) string {
 		if dir {
 			return "forward"
@@ -59,8 +69,12 @@ func (m *MainMotors) Set(left, right float64) error {
 			return "backward"
 		}
 	}
-	log.Printf("Setting motors to %.2f%% (%v) and %.2f%% (%v) (Sending %v byte to PWM device)",
-		leftSpeed*100, dirToText(leftDir), rightSpeed*100, dirToText(rightDir), len(pwmValues))
+	log.Printf("Setting %vmotors to %.2f%% (%v) and %.2f%% (%v) (Sending %v byte to PWM device)",
+		dummyText, leftSpeed*100, dirToText(leftDir), rightSpeed*100, dirToText(rightDir), len(pwmValues))
 
-	return m.bus.I2cWrite(m.I2cAddr, pwmValues...)
+	if m.Dummy {
+		return nil
+	} else {
+		return m.bus.I2cWrite(m.I2cAddr, pwmValues...)
+	}
 }
