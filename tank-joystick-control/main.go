@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"sync"
@@ -49,6 +50,15 @@ func main() {
 		SingleStick: OneStickMotorController{
 			Axis: leftAxis,
 		},
+		LedAxis: JoystickAxisOneDimension{
+			JoystickAxis: JoystickAxis{
+				AxisNumber:       5,
+				ZeroFrom:         0,
+				ZeroTo:           0,
+				ScaleZeroFromTo:  true,
+				SingleInvertFlag: true,
+			},
+		},
 	}
 	controller.SingleStick.Axis.SingleInvertFlag = false
 
@@ -83,9 +93,12 @@ type tankController struct {
 
 	Direct      DirectMotorController
 	SingleStick OneStickMotorController
+
+	LedAxis JoystickAxisOneDimension
 }
 
 func (c *tankController) registerFlags() {
+	c.LedAxis.RegisterFlags("leds", "axis for led control")
 	c.Direct.RegisterFlags()
 	c.SingleStick.RegisterFlags()
 	c.tank.RegisterFlags()
@@ -118,6 +131,15 @@ func (c *tankController) run() {
 	} else {
 		log.Fatalf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
 	}
+
+	c.LedAxis.Notify(js, func(val float32) {
+		numLeds := int(math.Floor(float64(val) * tank.NumLeds))
+		values := make([]float64, tank.NumLeds)
+		for i := 0; i < numLeds; i++ {
+			values[i] = 1
+		}
+		golib.Printerr(c.tank.Tank.Leds.Set(values))
+	})
 
 	// Setup motor control
 	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
