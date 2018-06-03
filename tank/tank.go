@@ -61,6 +61,7 @@ func (t *Tank) Setup() error {
 		return err
 	}
 	t.usb = usb
+	t.sequencer.usb = usb
 	t.Motors.bus = t.Bus()
 	t.Leds.bus = t.Bus()
 
