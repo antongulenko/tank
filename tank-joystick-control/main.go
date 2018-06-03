@@ -35,7 +35,6 @@ func main() {
 			SleepTime:      50 * time.Millisecond,
 			AccelSlopeTime: 400 * time.Millisecond,
 			DecelSlopeTime: 300 * time.Millisecond,
-			DummyMode:      false,
 		},
 		Direct: DirectMotorController{
 			LeftAxis: JoystickAxisOneDimension{
@@ -97,7 +96,7 @@ func (c *tankController) registerFlags() {
 
 func (c *tankController) run() {
 	// Initialize USB/I2C peripherals
-	c.tank.Start()
+	golib.Checkerr(c.tank.Setup())
 
 	// Connect Joystick
 	js := joysticks.Connect(c.joystickIndex)
