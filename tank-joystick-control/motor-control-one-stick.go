@@ -2,43 +2,28 @@ package main
 
 import (
 	"math"
-	"sync"
 
 	"github.com/antongulenko/tank/tank"
 	"github.com/splace/joysticks"
 )
 
 type OneStickMotorController struct {
-	AxisX   JoystickAxisOneDimension
-	AxisY   JoystickAxisOneDimension
+	Axis    JoystickAxis
 	Enabled bool
 }
 
 func (c *OneStickMotorController) RegisterFlags() {
-	c.AxisX.RegisterFlags("single-x-", "both motors (x)")
-	c.AxisY.RegisterFlags("single-y-", "both motors (y)")
+	c.Axis.RegisterFlags("single", "both motors")
 }
 
 func (m *OneStickMotorController) Setup(js *joysticks.HID, left, right tank.Motor) {
-	var lock sync.Mutex
-	var x, y float32
-	setSpeeds := func() {
+	m.Axis.Notify(js, func(x, y float32) {
 		if !m.Enabled {
 			return
 		}
-		lock.Lock()
-		defer lock.Unlock()
 		l, r := convertStickToDirections(float64(x), float64(y))
 		left.SetSpeed(float32(l))
 		right.SetSpeed(float32(r))
-	}
-	m.AxisX.Notify(js, func(newX float32) {
-		x = newX
-		setSpeeds()
-	})
-	m.AxisY.Notify(js, func(newY float32) {
-		y = newY
-		setSpeeds()
 	})
 }
 

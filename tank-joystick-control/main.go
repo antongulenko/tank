@@ -47,16 +47,10 @@ func main() {
 			},
 		},
 		SingleStick: OneStickMotorController{
-			AxisX: JoystickAxisOneDimension{
-				JoystickAxis: leftAxis,
-				UseY:         false,
-			},
-			AxisY: JoystickAxisOneDimension{
-				JoystickAxis: leftAxis,
-				UseY:         true,
-			},
+			Axis: leftAxis,
 		},
 	}
+	controller.SingleStick.Axis.SingleInvertFlag = true
 
 	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)
