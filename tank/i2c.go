@@ -46,7 +46,12 @@ func (r *I2cRequest) notifyDone() {
 	r.wait.Broadcast()
 }
 
-func (t *Tank) handleI2cRequests() {
+type sequencedI2cBus struct {
+	usb      *ft260.Ft260
+	i2cQueue chan *I2cRequest
+}
+
+func (t *sequencedI2cBus) handleI2cRequests() {
 	for req := range t.i2cQueue {
 		switch req.Type {
 		case I2cWrite:
@@ -67,17 +72,17 @@ func (t *Tank) handleI2cRequests() {
 	}
 }
 
-func (t *Tank) QueueI2cRequest(req *I2cRequest) {
+func (t *sequencedI2cBus) QueueI2cRequest(req *I2cRequest) {
 	req.init()
 	t.i2cQueue <- req
 }
 
-func (t *Tank) I2cRequest(req *I2cRequest) {
+func (t *sequencedI2cBus) I2cRequest(req *I2cRequest) {
 	t.QueueI2cRequest(req)
 	req.Wait()
 }
 
-func (t *Tank) I2cWrite(addr byte, data ...byte) error {
+func (t *sequencedI2cBus) I2cWrite(addr byte, data ...byte) error {
 	req := &I2cRequest{
 		Type:      I2cWrite,
 		DataWrite: data,
@@ -86,7 +91,7 @@ func (t *Tank) I2cWrite(addr byte, data ...byte) error {
 	return req.Error
 }
 
-func (t *Tank) I2cRead(addr byte, data []byte) error {
+func (t *sequencedI2cBus) I2cRead(addr byte, data []byte) error {
 	req := &I2cRequest{
 		Type:     I2cRead,
 		DataRead: data,
@@ -95,7 +100,7 @@ func (t *Tank) I2cRead(addr byte, data []byte) error {
 	return req.Error
 }
 
-func (t *Tank) I2cWriteRead(addr byte, out, in []byte) error {
+func (t *sequencedI2cBus) I2cWriteRead(addr byte, out, in []byte) error {
 	req := &I2cRequest{
 		Type:      I2cWriteRead,
 		DataRead:  in,
@@ -105,7 +110,7 @@ func (t *Tank) I2cWriteRead(addr byte, out, in []byte) error {
 	return req.Error
 }
 
-func (t *Tank) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
+func (t *sequencedI2cBus) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
 	req := &I2cRequest{
 		Type:        I2cGet,
 		GetRegister: registerAddr,
@@ -113,8 +118,4 @@ func (t *Tank) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
 	}
 	t.I2cRequest(req)
 	return req.DataRead, req.Error
-}
-
-func (t *Tank) I2cScan() ([]byte, error) {
-	return ft260.I2cScan(t)
 }

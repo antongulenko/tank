@@ -58,6 +58,7 @@ func (a *SmoothTank) Start() {
 	} else {
 		golib.Checkerr(a.Tank.Setup())
 		golib.Checkerr(a.Tank.Motors.Init())
+		golib.Checkerr(a.Tank.Leds.Init())
 		log.Println("Successfully initialized USB/I2C peripherals")
 	}
 	go a.adjustSpeedLoop()

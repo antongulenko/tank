@@ -22,7 +22,7 @@ var DefaultTank = Tank{
 		InvertRightDir: false,
 	},
 	Leds: MainLeds{
-		I2cAddr:  pca9685.ADDRESS + 1,
+		I2cAddr:  pca9685.ADDRESS + 8, // A3 pin set
 		PwmStart: pca9685.LED0,
 	},
 }
@@ -31,22 +31,26 @@ type Tank struct {
 	UsbDevice       string
 	I2cFreq         uint
 	I2cRequestQueue int
+	NoI2cSequencer  bool
 
 	Motors MainMotors
 	Leds   MainLeds
 
-	usb      *ft260.Ft260
-	i2cQueue chan *I2cRequest
+	usb       *ft260.Ft260
+	sequencer sequencedI2cBus
 }
 
 func (t *Tank) RegisterFlags() {
 	flag.StringVar(&t.UsbDevice, "dev", t.UsbDevice, "Specify a USB path for FT260")
 	flag.UintVar(&t.I2cFreq, "freq", t.I2cFreq, "The I2C bus frequency (60 - 3400)")
+	flag.BoolVar(&t.NoI2cSequencer, "no-i2c-sequencer", t.NoI2cSequencer, "Disable the extra goroutine for sequencing I2C commands")
 }
 
 func (t *Tank) Setup() error {
-	t.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
-	go t.handleI2cRequests()
+	t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
+	if !t.NoI2cSequencer {
+		go t.sequencer.handleI2cRequests()
+	}
 
 	// Prepare Usb HID library, open FT260 device
 	if err := hid.Init(); err != nil {
@@ -57,7 +61,8 @@ func (t *Tank) Setup() error {
 		return err
 	}
 	t.usb = usb
-	t.Motors.bus = t
+	t.Motors.bus = t.Bus()
+	t.Leds.bus = t.Bus()
 
 	// Configure and validate system settings
 	if err := t.validateFt260ChipCode(); err != nil {
@@ -70,6 +75,14 @@ func (t *Tank) Setup() error {
 		return err
 	}
 	return nil
+}
+
+func (t *Tank) Bus() ft260.I2cBus {
+	if t.NoI2cSequencer {
+		return t.usb
+	} else {
+		return &t.sequencer
+	}
 }
 
 func (t *Tank) Cleanup() {
