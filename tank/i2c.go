@@ -84,6 +84,7 @@ func (t *sequencedI2cBus) I2cRequest(req *I2cRequest) {
 
 func (t *sequencedI2cBus) I2cWrite(addr byte, data ...byte) error {
 	req := &I2cRequest{
+		Addr:      addr,
 		Type:      I2cWrite,
 		DataWrite: data,
 	}
@@ -93,6 +94,7 @@ func (t *sequencedI2cBus) I2cWrite(addr byte, data ...byte) error {
 
 func (t *sequencedI2cBus) I2cRead(addr byte, data []byte) error {
 	req := &I2cRequest{
+		Addr:     addr,
 		Type:     I2cRead,
 		DataRead: data,
 	}
@@ -102,6 +104,7 @@ func (t *sequencedI2cBus) I2cRead(addr byte, data []byte) error {
 
 func (t *sequencedI2cBus) I2cWriteRead(addr byte, out, in []byte) error {
 	req := &I2cRequest{
+		Addr:      addr,
 		Type:      I2cWriteRead,
 		DataRead:  in,
 		DataWrite: out,
@@ -112,6 +115,7 @@ func (t *sequencedI2cBus) I2cWriteRead(addr byte, out, in []byte) error {
 
 func (t *sequencedI2cBus) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
 	req := &I2cRequest{
+		Addr:        addr,
 		Type:        I2cGet,
 		GetRegister: registerAddr,
 		GetSize:     size,
