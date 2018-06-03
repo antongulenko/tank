@@ -109,10 +109,10 @@ func (c *tankController) run() {
 	// Setup joystick controls
 	controlButton := uint8(c.toggleControlModeButton)
 	if js.ButtonExists(controlButton) {
-		toggleMode := js.OnButton(controlButton)
+		toggleMode := js.OnLong(controlButton)
 		go func() {
 			for range toggleMode {
-				log.Println("Toggled control mode. Now using single stick: %v", c.useSingleStick)
+				log.Println("Toggled control mode. Now using single stick:", c.useSingleStick)
 				c.toggleMotorController(js)
 			}
 		}()

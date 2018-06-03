@@ -2,10 +2,10 @@ package tank
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/pca9685"
+	log "github.com/sirupsen/logrus"
 )
 
 const NumLeds = 15
