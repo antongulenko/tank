@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/antongulenko/golib"
@@ -20,8 +21,9 @@ var (
 	sleepTime         = 400 * time.Millisecond
 	benchTime         = 3 * time.Second
 	command           = "scan"
+	ledI2cAddr        = uint(0x44)
 	availableCommands = []string{
-		"none", "scan", "bench", "gpio", "motors", "motorDirect",
+		"none", "scan", "bench", "gpio", "motors", "motorDirect", "tankLeds",
 	}
 	motorSpeed1 = float64(0)
 	motorSpeed2 = float64(0)
@@ -30,6 +32,7 @@ var (
 
 func main() {
 	t.RegisterFlags()
+	flag.UintVar(&ledI2cAddr, "leds", ledI2cAddr, "I2C address of led driver for -c tankLeds")
 	flag.DurationVar(&sleepTime, "sleep", sleepTime, "Sleep time between GPIO updates (gpio command)")
 	flag.DurationVar(&benchTime, "benchTime", sleepTime, "Benchmark time (bench command)")
 	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
@@ -66,6 +69,8 @@ func doMain() error {
 		return setMotors(mcp23017.ADDRESS, motorSpeed1, motorSpeed2)
 	case "motorDirect":
 		return setMotorDirect(motorSpeed1)
+	case "tankLeds":
+		return setTankLeds()
 	default:
 		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
 	}
@@ -270,4 +275,32 @@ func setMotorDirect(speed float64) error {
 		return err
 	}
 	return t.Motors.Set(speed, speed)
+}
+
+func setTankLeds() error {
+	var values []float64
+	for _, valueStr := range flag.Args() {
+		value, err := strconv.ParseFloat(valueStr, 64)
+		if err != nil {
+			log.Errorf("Failed to parse argument '%v' as float: %v", valueStr, err)
+			continue
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return fmt.Errorf("No valid values given for setting LEDs")
+	}
+	log.Println("Setting %v led value(s): %v", len(values), values)
+
+	log.Printf("Initializing led driver at %v...", ledI2cAddr)
+	if err := t.Bus().I2cWrite(byte(ledI2cAddr), pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI); err != nil {
+		return err
+	}
+	log.Println("Success")
+	pwmValues := make([]byte, pca9685.BYTE_PER_OUTPUT*len(values))
+	for i, val := range values {
+		pca9685.ValuesInto(val, pwmValues[pca9685.BYTE_PER_OUTPUT*i:])
+	}
+	log.Printf("Writing %v byte to led driver: %v", len(pwmValues), pwmValues)
+	return t.Bus().I2cWrite(byte(ledI2cAddr), pwmValues...)
 }
