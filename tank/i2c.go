@@ -54,10 +54,13 @@ func (t *Tank) handleI2cRequests() {
 			req.notifyDone()
 		case I2cRead:
 			req.Error = t.usb.I2cRead(req.Addr, req.DataRead)
+			req.notifyDone()
 		case I2cWriteRead:
 			req.Error = t.usb.I2cWriteRead(req.Addr, req.DataWrite, req.DataRead)
+			req.notifyDone()
 		case I2cGet:
 			req.DataRead, req.Error = t.usb.I2cGet(req.Addr, req.GetRegister, req.GetSize)
+			req.notifyDone()
 		default:
 			log.Errorln("Ignoring invalid tank I2c request with type", req.Type)
 		}

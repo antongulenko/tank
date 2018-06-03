@@ -187,8 +187,6 @@ func I2cScan(bus I2cBus) ([]byte, error) {
 	return I2cScanRange(bus, 0x08, 0x77)
 }
 
-const i2c_status_error_mask = I2C_StatusError | I2C_StatusNoSlaveAck | I2C_StatusNoDataAck | I2C_StatusArbitrationLost
-
 func I2cScanRange(bus I2cBus, from, to byte) ([]byte, error) {
 	var slaves []byte
 	if from > to {
