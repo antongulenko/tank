@@ -138,6 +138,7 @@ func (c *tankController) run() {
 		for i := 0; i < numLeds; i++ {
 			values[i] = 1
 		}
+		log.Printf("Led axis value %v, enabling %v leds", val, numLeds)
 		golib.Printerr(c.tank.Tank.Leds.Set(values))
 	})
 
