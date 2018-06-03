@@ -12,23 +12,31 @@ import (
 )
 
 var DefaultTank = Tank{
-	UsbDevice: "",
-	I2cFreq:   uint(400),
-	Motors: mainMotors{
+	UsbDevice:       "",
+	I2cFreq:         uint(400),
+	I2cRequestQueue: 20,
+	Motors: MainMotors{
 		I2cAddr:        pca9685.ADDRESS,
 		PwmStart:       pca9685.LED0,
 		InvertLeftDir:  false,
 		InvertRightDir: false,
 	},
+	Leds: MainLeds{
+		I2cAddr:  pca9685.ADDRESS + 1,
+		PwmStart: pca9685.LED0,
+	},
 }
 
 type Tank struct {
-	UsbDevice string
-	I2cFreq   uint
+	UsbDevice       string
+	I2cFreq         uint
+	I2cRequestQueue int
 
-	Motors mainMotors
+	Motors MainMotors
+	Leds   MainLeds
 
-	Usb *ft260.Ft260
+	usb      *ft260.Ft260
+	i2cQueue chan *I2cRequest
 }
 
 func (t *Tank) RegisterFlags() {
@@ -37,6 +45,9 @@ func (t *Tank) RegisterFlags() {
 }
 
 func (t *Tank) Setup() error {
+	t.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
+	go t.handleI2cRequests()
+
 	// Prepare Usb HID library, open FT260 device
 	if err := hid.Init(); err != nil {
 		return err
@@ -45,8 +56,8 @@ func (t *Tank) Setup() error {
 	if err != nil {
 		return err
 	}
-	t.Usb = usb
-	t.Motors.usb = usb
+	t.usb = usb
+	t.Motors.tank = t
 
 	// Configure and validate system settings
 	if err := t.validateFt260ChipCode(); err != nil {
@@ -63,12 +74,12 @@ func (t *Tank) Setup() error {
 
 func (t *Tank) Cleanup() {
 	golib.Printerr(hid.Shutdown())
-	golib.Printerr(t.Usb.Close())
+	golib.Printerr(t.usb.Close())
 }
 
 func (t *Tank) validateFt260ChipCode() error {
 	var code ft260.ReportChipCode
-	if err := t.Usb.Read(&code); err != nil {
+	if err := t.usb.Read(&code); err != nil {
 		return err
 	}
 	if code.ChipCode != ft260.FT260_CHIP_CODE {
@@ -90,7 +101,7 @@ func (t *Tank) configureFt260() (err error) {
 
 func (t *Tank) writeConfigValue(outErr *error, address byte, val interface{}) {
 	if *outErr == nil {
-		*outErr = t.Usb.Write(&ft260.SetSystemStatus{
+		*outErr = t.usb.Write(&ft260.SetSystemStatus{
 			Request: address,
 			Value:   val,
 		})
@@ -99,7 +110,7 @@ func (t *Tank) writeConfigValue(outErr *error, address byte, val interface{}) {
 
 func (t *Tank) validateFt260() error {
 	var status ft260.ReportSystemStatus
-	if err := t.Usb.Read(&status); err != nil {
+	if err := t.usb.Read(&status); err != nil {
 		return err
 	}
 	if status.ChipMode != 0x01 {
@@ -131,7 +142,7 @@ func (t *Tank) validateFt260() error {
 	}
 
 	var i2cStatus ft260.ReportI2cStatus
-	if err := t.Usb.Read(&i2cStatus); err != nil {
+	if err := t.usb.Read(&i2cStatus); err != nil {
 		return err
 	}
 	if i2cStatus.BusSpeed != uint16(t.I2cFreq) {

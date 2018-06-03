@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"os/signal"
 	"sync"
@@ -16,91 +15,55 @@ import (
 	"github.com/splace/joysticks"
 )
 
-var (
-	t    = tank.DefaultTank
-	left = motor{
-		name:     "left",
-		axis:     1,
-		useY:     true,
-		zeroFrom: -0.15,
-		zeroTo:   0.1,
-		invert:   true,
-	}
-	right = motor{
-		name:     "right",
-		axis:     3,
-		zeroFrom: -0.15,
-		zeroTo:   0.1,
-		invert:   true,
-	}
-	adjuster = speedAdjuster{
-		adjustCond: sync.NewCond(new(sync.Mutex)),
-		sleepTime:  50 * time.Millisecond,
-		decelStep:  0.1, // Step when accelerating
-		accelStep:  0.1, // Step when decelerating
-	}
-)
-
-type motor struct {
-	name   string
-	axis   int
-	useY   bool
-	invert bool
-
-	// Positions between these values are bound to zero
-	zeroFrom, zeroTo float64
-
-	// If true, scale the value range to adjust for zeroFrom/zeroTo and make the entire value range -1..1 available
-	scaleZeroFromTo bool
-
-	// The smallest speed will be translated to this, speed scaled linearly between this and 100%
-	minSpeed float64
-
-	position float32
-}
-
-func (m *motor) registerFlags() {
-	flag.IntVar(&m.axis, m.name, m.axis, "Index for "+m.name+" motor")
-	flag.BoolVar(&m.useY, m.name+"Y", m.useY, "Use Y instead of X axis for "+m.name+" motor")
-	flag.BoolVar(&m.invert, m.name+"Invert", m.invert, "Invert "+m.name+" motor direction")
-	flag.Float64Var(&m.zeroFrom, m.name+"ZeroFrom", m.zeroFrom, "Start of the zero interval of the "+m.name+" motor")
-	flag.Float64Var(&m.zeroTo, m.name+"ZeroTo", m.zeroTo, "End of the zero interval of the "+m.name+" motor")
-}
-
 func main() {
-	var index int
-	flag.IntVar(&index, "js", 1, "Joystick device index")
-	minSpeed := flag.Float64("minSpeed", 0, "Minimum speed for all motors and directions")
-	flag.DurationVar(&adjuster.sleepTime, "adjustSleep", adjuster.sleepTime, "Time to sleep between motor adjustments")
-	accelSlopeTime := flag.Duration("accelSlopeTime", 400*time.Millisecond, "Maximum time for a motor to ramp up between 0% and 100%")
-	decelSlopeTime := flag.Duration("decelSlopeTime", 300*time.Millisecond, "Maximum time for a motor to ramp down between 100% and 0%")
-	scaleZeroFromTo := flag.Bool("scaleZeroFromTo", true, "Can be used to disable the value range adjustment after filtering based on zeroFrom/zeroTo")
-	flag.BoolVar(&adjuster.dummyMode, "dummy", false, "Dummy mode: do not use USB/I2C peripherals, just print motor values")
-	left.registerFlags()
-	right.registerFlags()
-	t.RegisterFlags()
+	leftAxis := JoystickAxis{
+		AxisNumber:       1,
+		ZeroFrom:         -0.2,
+		ZeroTo:           0.1,
+		ScaleZeroFromTo:  true,
+		InvertX:          true,
+		SingleInvertFlag: true,
+	}
+	rightAxis := leftAxis
+	rightAxis.AxisNumber = 3
+	controller := tankController{
+		joystickIndex:           1,
+		toggleControlModeButton: 1,
+		useSingleStick:          false,
+		tank: tank.SmoothTank{
+			Tank:           tank.DefaultTank,
+			SleepTime:      50 * time.Millisecond,
+			AccelSlopeTime: 400 * time.Millisecond,
+			DecelSlopeTime: 300 * time.Millisecond,
+			DummyMode:      false,
+		},
+		Direct: DirectMotorController{
+			LeftAxis: JoystickAxisOneDimension{
+				JoystickAxis: leftAxis,
+				UseY:         true,
+			},
+			RightAxis: JoystickAxisOneDimension{
+				JoystickAxis: rightAxis,
+				UseY:         false,
+			},
+		},
+		SingleStick: OneStickMotorController{
+			Axis: leftAxis,
+		},
+	}
+	controller.SingleStick.Axis.SingleInvertFlag = false
+
+	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)
 	flag.Parse()
 	golib.ConfigureLogging()
-	left.minSpeed = *minSpeed
-	right.minSpeed = *minSpeed
-	left.scaleZeroFromTo = *scaleZeroFromTo
-	right.scaleZeroFromTo = *scaleZeroFromTo
-	adjuster.accelStep = float32(adjuster.sleepTime) / float32(*accelSlopeTime)
-	adjuster.decelStep = float32(adjuster.sleepTime) / float32(*decelSlopeTime)
 
 	// "Clean" shutdown with Ctrl-C signal
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	var cleanupOnce sync.Once
 	cleanup := func() {
-		cleanupOnce.Do(func() {
-			adjuster.stop()
-			if !adjuster.dummyMode {
-				t.Motors.Set(0, 0)
-				t.Cleanup()
-			}
-		})
+		cleanupOnce.Do(controller.stop)
 	}
 	defer cleanup()
 	go func() {
@@ -109,142 +72,72 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if adjuster.dummyMode {
-		log.Println("Dummy mode: not connecting USB/I2C peripherals")
-	} else {
-		golib.Checkerr(t.Setup())
-		golib.Checkerr(t.Motors.Init())
-		log.Println("Successfully initialized USB/I2C peripherals, now connecting joystick...")
-	}
+	controller.run() // Does not return
+}
 
-	js := joysticks.Connect(index)
+type tankController struct {
+	joystickIndex           int
+	toggleControlModeButton int
+	useSingleStick          bool
+
+	tank tank.SmoothTank
+
+	Direct      DirectMotorController
+	SingleStick OneStickMotorController
+}
+
+func (c *tankController) registerFlags() {
+	c.Direct.RegisterFlags()
+	c.SingleStick.RegisterFlags()
+	c.tank.RegisterFlags()
+	flag.IntVar(&c.joystickIndex, "js", c.joystickIndex, "Joystick device index")
+	flag.IntVar(&c.toggleControlModeButton, "toggleControlModeButton", c.toggleControlModeButton, "Joystick Button index that toggles between one-stick and two-stick control")
+	flag.BoolVar(&c.useSingleStick, "singleStick", c.useSingleStick, "Use single stick for controlling motors")
+}
+
+func (c *tankController) run() {
+	// Initialize USB/I2C peripherals
+	c.tank.Start()
+
+	// Connect Joystick
+	js := joysticks.Connect(c.joystickIndex)
 	if js == nil {
-		log.Fatalln("Failed to open joystick with index", index)
+		log.Fatalln("Failed to open joystick with index", c.joystickIndex)
 	}
 	log.Printf("Opened device index %v (%v buttons, %v axes, %v events)",
-		index, len(js.Buttons), len(js.HatAxes), len(js.Events))
-	if !js.HatExists(uint8(left.axis)) {
-		log.Fatalf("Left motor stick (%v) does not exist on device %v", left.axis, index)
-	}
-	if !js.HatExists(uint8(right.axis)) {
-		log.Fatalf("Right motor stick (%v) does not exist on device %v", right.axis, index)
-	}
+		c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
 
-	go adjuster.adjustSpeedLoop()
-	leftMoved := js.OnMove(uint8(left.axis))
-	rightMoved := js.OnMove(uint8(right.axis))
-	go js.ParcelOutEvents()
-	for {
-		select {
-		case event := <-leftMoved:
-			left.handleAxis(event)
-		case event := <-rightMoved:
-			right.handleAxis(event)
-		}
-	}
-}
-
-type speedAdjuster struct {
-	adjustCond *sync.Cond
-	sleepTime  time.Duration
-	accelStep  float32
-	decelStep  float32
-	dummyMode  bool
-
-	// Current position
-	left  float32
-	right float32
-
-	stopFlag bool
-}
-
-func (a *speedAdjuster) adjustSpeedLoop() {
-	for !a.stopFlag {
-		// Wait for incorrect position of any motor
-		a.adjustCond.L.Lock()
-		for a.left == left.position && a.right == right.position && !a.stopFlag {
-			a.adjustCond.Wait()
-		}
-		a.adjustCond.L.Unlock()
-		if !a.stopFlag {
-			a.adjustSpeed(&left, &a.left)
-			a.adjustSpeed(&right, &a.right)
-			leftPos := float64(a.left * 100)
-			rightPos := float64(a.right * 100)
-			if !a.dummyMode {
-				golib.Printerr(t.Motors.Set(leftPos, rightPos))
-			} else {
-				log.Printf("Setting motors to left: %v right: %v", leftPos, rightPos)
+	// Setup joystick controls
+	controlButton := uint8(c.toggleControlModeButton)
+	if js.ButtonExists(controlButton) {
+		toggleMode := js.OnButton(controlButton)
+		go func() {
+			for range toggleMode {
+				log.Println("Toggled control mode. Now using single stick: %v", c.useSingleStick)
+				c.toggleMotorController(js)
 			}
-			time.Sleep(a.sleepTime)
-		}
-	}
-}
-
-func (a *speedAdjuster) stop() {
-	a.adjustCond.L.Lock()
-	a.left = 0
-	a.right = 0
-	a.stopFlag = true
-	a.adjustCond.Broadcast()
-	a.adjustCond.L.Unlock()
-}
-
-func (a *speedAdjuster) adjustSpeed(m *motor, current *float32) {
-	cur := *current
-	forward := cur > 0             // Currently driving forward
-	increasing := m.position > cur // Target momentum is more forward-oriented than currently
-
-	adjustStep := a.decelStep
-	if forward == increasing {
-		adjustStep = a.accelStep
-	}
-	if !increasing {
-		adjustStep = -adjustStep
-	}
-
-	if math.Abs(float64(cur-m.position)) <= math.Abs(float64(adjustStep)) {
-		*current = m.position
+		}()
 	} else {
-		*current = cur + adjustStep
+		log.Fatalf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
 	}
+
+	// Setup motor control
+	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
+	c.toggleMotorController(js)
+
+	// Start receiving joystick events
+	js.ParcelOutEvents() // Does not return
 }
 
-func (a *speedAdjuster) notifyChangedPosition() {
-	a.adjustCond.L.Lock()
-	a.adjustCond.Broadcast()
-	a.adjustCond.L.Unlock()
+func (c *tankController) stop() {
+	c.tank.Stop()
 }
 
-func (m *motor) handleAxis(event joysticks.Event) {
-	coords := event.(joysticks.CoordsEvent)
-	val := coords.X
-	if m.useY {
-		val = coords.Y
+func (c *tankController) toggleMotorController(js *joysticks.HID) {
+	c.useSingleStick = !c.useSingleStick
+	if c.useSingleStick {
+		c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
+	} else {
+		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
 	}
-	if m.invert {
-		val = -val
-	}
-	zeroFrom := float32(m.zeroFrom)
-	zeroTo := float32(m.zeroTo)
-	if val >= zeroFrom && val <= zeroTo {
-		val = 0
-	} else if m.scaleZeroFromTo {
-		// Scale the value range from [-1..zeroFrom] and [zeroTo..0] to [-1..0] and [0..1]
-		if val > 0 {
-			val = (val - zeroTo) / (1 - zeroTo)
-		} else if val < 0 {
-			val = (zeroFrom - val) / (-1 - zeroFrom)
-		}
-	}
-	min := float32(m.minSpeed)
-	if min > 0 && min < 1 && val != 0 {
-		if val < 0 {
-			val = -min + (1-min)*val
-		} else {
-			val = min + (1-min)*val
-		}
-	}
-	m.position = val
-	adjuster.notifyChangedPosition()
 }
