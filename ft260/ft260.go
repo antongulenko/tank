@@ -173,9 +173,14 @@ func (f *Ft260) Read(report ReportIn) error {
 		}
 	}
 	if err == nil {
-		err = report.Unmarshall(data[1:n])
-		if err != nil {
-			err = fmt.Errorf("Failed to unmarshall ft260 read result %T: %v", report, err)
+		if len(data) < 1 || len(data) < n || n < 1 {
+			// Sanity check to avoid out-of-bounds panic
+			err = fmt.Errorf("Report len %v is not within expected bounds 1..%v", len(data), n)
+		} else {
+			err = report.Unmarshall(data[1:n])
+			if err != nil {
+				err = fmt.Errorf("Failed to unmarshall ft260 read result %T: %v", report, err)
+			}
 		}
 	}
 	return err
