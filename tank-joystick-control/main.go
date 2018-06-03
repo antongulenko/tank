@@ -113,7 +113,6 @@ func (c *tankController) run() {
 		toggleMode := js.OnLong(controlButton)
 		go func() {
 			for range toggleMode {
-				log.Println("Toggled control mode. Now using single stick:", c.useSingleStick)
 				c.toggleMotorController(js)
 			}
 		}()
@@ -136,8 +135,10 @@ func (c *tankController) stop() {
 func (c *tankController) toggleMotorController(js *joysticks.HID) {
 	c.useSingleStick = !c.useSingleStick
 	if c.useSingleStick {
+		log.Println("Setting control mode to SINGLE stick")
 		c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
 	} else {
+		log.Println("Setting control mode to DOUBLE stick")
 		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
 	}
 }

@@ -1,8 +1,6 @@
 package tank
 
 import (
-	"fmt"
-
 	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/pca9685"
 	log "github.com/sirupsen/logrus"
@@ -40,7 +38,7 @@ func (m *MainLeds) Set(values []float64) error {
 func (m *MainLeds) update(values []float64) error {
 	pwmValues := m.pwmOutput.Update(m.PwmStart, values)
 	if m.Dummy {
-		fmt.Println("Dummy Leds: setting to", values)
+		log.Println("Dummy Leds: setting to", values)
 		return nil
 	} else {
 		return m.bus.I2cWrite(m.I2cAddr, pwmValues...)
