@@ -290,7 +290,7 @@ func setTankLeds() error {
 	if len(values) == 0 {
 		return fmt.Errorf("No valid values given for setting LEDs")
 	}
-	log.Println("Setting %v led value(s): %v", len(values), values)
+	log.Printf("Setting %v led value(s): %v", len(values), values)
 
 	log.Printf("Initializing led driver at %v...", ledI2cAddr)
 	if err := t.Bus().I2cWrite(byte(ledI2cAddr), pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI); err != nil {
@@ -302,5 +302,6 @@ func setTankLeds() error {
 		pca9685.ValuesInto(val, pwmValues[pca9685.BYTE_PER_OUTPUT*i:])
 	}
 	log.Printf("Writing %v byte to led driver: %v", len(pwmValues), pwmValues)
+	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
 	return t.Bus().I2cWrite(byte(ledI2cAddr), pwmValues...)
 }
