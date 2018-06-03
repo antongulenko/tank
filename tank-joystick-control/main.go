@@ -50,7 +50,6 @@ func main() {
 			Axis: leftAxis,
 		},
 	}
-	controller.SingleStick.Axis.SingleInvertFlag = true
 
 	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)
