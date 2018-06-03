@@ -126,8 +126,11 @@ func (c *tankController) run() {
 	}
 
 	// Setup motor control
-	c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
-	c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
+	if c.useSingleStick {
+		c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
+	} else {
+		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
+	}
 	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
 	c.toggleMotorController(js)
 
