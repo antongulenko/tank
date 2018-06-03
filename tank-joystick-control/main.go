@@ -47,8 +47,14 @@ func main() {
 			},
 		},
 		SingleStick: OneStickMotorController{
-			AxisX: leftAxis,
-			AxisY: leftAxis,
+			AxisX: JoystickAxisOneDimension{
+				JoystickAxis: leftAxis,
+				UseY:         true,
+			},
+			AxisY: JoystickAxisOneDimension{
+				JoystickAxis: leftAxis,
+				UseY:         true,
+			},
 		},
 	}
 	controller.SingleStick.AxisX.AxisNumber = 2

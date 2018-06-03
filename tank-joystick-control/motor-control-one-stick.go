@@ -9,8 +9,8 @@ import (
 )
 
 type OneStickMotorController struct {
-	AxisX JoystickAxis
-	AxisY JoystickAxis
+	AxisX JoystickAxisOneDimension
+	AxisY JoystickAxisOneDimension
 }
 
 func (c *OneStickMotorController) RegisterFlags() {
@@ -28,11 +28,11 @@ func (m *OneStickMotorController) Setup(js *joysticks.HID, left, right tank.Moto
 		left.SetSpeed(float32(l))
 		right.SetSpeed(float32(r))
 	}
-	m.AxisX.Notify(js, func(newX, _ float32) {
+	m.AxisX.Notify(js, func(newX float32) {
 		x = newX
 		setSpeeds()
 	})
-	m.AxisY.Notify(js, func(_, newY float32) {
+	m.AxisY.Notify(js, func(newY float32) {
 		y = newY
 		setSpeeds()
 	})
