@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the driver for the XBOX controller
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/xboxdrv -d
+Restart=always
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target
+
