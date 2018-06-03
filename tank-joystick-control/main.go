@@ -126,6 +126,8 @@ func (c *tankController) run() {
 	}
 
 	// Setup motor control
+	c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
+	c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
 	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
 	c.toggleMotorController(js)
 
@@ -141,9 +143,11 @@ func (c *tankController) toggleMotorController(js *joysticks.HID) {
 	c.useSingleStick = !c.useSingleStick
 	if c.useSingleStick {
 		log.Println("Setting control mode to SINGLE stick")
-		c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
+		c.Direct.Enabled = false
+		c.SingleStick.Enabled = true
 	} else {
 		log.Println("Setting control mode to DOUBLE stick")
-		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
+		c.Direct.Enabled = true
+		c.SingleStick.Enabled = false
 	}
 }

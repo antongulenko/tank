@@ -9,8 +9,9 @@ import (
 )
 
 type OneStickMotorController struct {
-	AxisX JoystickAxisOneDimension
-	AxisY JoystickAxisOneDimension
+	AxisX   JoystickAxisOneDimension
+	AxisY   JoystickAxisOneDimension
+	Enabled bool
 }
 
 func (c *OneStickMotorController) RegisterFlags() {
@@ -22,6 +23,9 @@ func (m *OneStickMotorController) Setup(js *joysticks.HID, left, right tank.Moto
 	var lock sync.Mutex
 	var x, y float32
 	setSpeeds := func() {
+		if !m.Enabled {
+			return
+		}
 		lock.Lock()
 		defer lock.Unlock()
 		l, r := convertStickToDirections(float64(x), float64(y))
