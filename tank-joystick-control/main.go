@@ -47,10 +47,11 @@ func main() {
 			},
 		},
 		SingleStick: OneStickMotorController{
-			Axis: leftAxis,
+			AxisX: leftAxis,
+			AxisY: leftAxis,
 		},
 	}
-	controller.SingleStick.Axis.SingleInvertFlag = false
+	controller.SingleStick.AxisX.AxisNumber = 2
 
 	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)
