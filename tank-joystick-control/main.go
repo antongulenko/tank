@@ -133,7 +133,7 @@ func (c *tankController) run() {
 	}
 
 	c.LedAxis.Notify(js, func(val float32) {
-		numLeds := int(math.Floor(float64(val) * tank.NumLeds))
+		numLeds := int(math.Floor(float64((val+1)/2) * tank.NumLeds))
 		values := make([]float64, tank.NumLeds)
 		for i := 0; i < numLeds; i++ {
 			values[i] = 1
