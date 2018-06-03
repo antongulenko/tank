@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 
+	"github.com/antongulenko/tank/tank"
 	"github.com/splace/joysticks"
 )
 
@@ -14,7 +15,7 @@ func (c *OneStickMotorController) RegisterFlags() {
 	c.Axis.RegisterFlags("single", "both motors")
 }
 
-func (m *OneStickMotorController) Setup(js *joysticks.HID, left, right *Motor) {
+func (m *OneStickMotorController) Setup(js *joysticks.HID, left, right tank.Motor) {
 	m.Axis.Notify(js, func(x, y float32) {
 		l, r := convertStickToDirections(float64(x), float64(y))
 		left.SetSpeed(float32(l))

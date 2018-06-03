@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"os/signal"
 	"sync"
@@ -27,34 +26,34 @@ func main() {
 	}
 	rightAxis := leftAxis
 	rightAxis.AxisNumber = 3
-	directController := DirectMotorController{
-		LeftAxis: JoystickAxisOneDimension{
-			JoystickAxis: leftAxis,
-			UseY:         true,
+	controller := tankController{
+		joystickIndex:           1,
+		toggleControlModeButton: 1,
+		useSingleStick:          false,
+		tank: tank.SmoothTank{
+			Tank:           tank.DefaultTank,
+			SleepTime:      50 * time.Millisecond,
+			AccelSlopeTime: 400 * time.Millisecond,
+			DecelSlopeTime: 300 * time.Millisecond,
+			DummyMode:      false,
 		},
-		RightAxis: JoystickAxisOneDimension{
-			JoystickAxis: rightAxis,
-			UseY:         false,
+		Direct: DirectMotorController{
+			LeftAxis: JoystickAxisOneDimension{
+				JoystickAxis: leftAxis,
+				UseY:         true,
+			},
+			RightAxis: JoystickAxisOneDimension{
+				JoystickAxis: rightAxis,
+				UseY:         false,
+			},
+		},
+		SingleStick: OneStickMotorController{
+			Axis: leftAxis,
 		},
 	}
-	singleStickController := OneStickMotorController{
-		Axis: leftAxis,
-	}
-	singleStickController.Axis.SingleInvertFlag = false
-	adjuster := speedAdjuster{
-		tank:           tank.DefaultTank,
-		adjustCond:     sync.NewCond(new(sync.Mutex)),
-		sleepTime:      50 * time.Millisecond,
-		accelSlopeTime: 400 * time.Millisecond,
-		decelSlopeTime: 300 * time.Millisecond,
-		dummyMode:      false,
-	}
+	controller.SingleStick.Axis.SingleInvertFlag = false
 
-	joystickIndex := flag.Int("js", 1, "Joystick device index")
-	useSingleTick := flag.Bool("singleStick", false, "Use single stick for controlling motors")
-	adjuster.registerFlags()
-	singleStickController.RegisterFlags()
-	directController.RegisterFlags()
+	controller.registerFlags()
 	golib.RegisterFlags(golib.FlagsAll)
 	flag.Parse()
 	golib.ConfigureLogging()
@@ -64,9 +63,7 @@ func main() {
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	var cleanupOnce sync.Once
 	cleanup := func() {
-		cleanupOnce.Do(func() {
-			adjuster.stop()
-		})
+		cleanupOnce.Do(controller.stop)
 	}
 	defer cleanup()
 	go func() {
@@ -75,154 +72,72 @@ func main() {
 		os.Exit(0)
 	}()
 
-	adjuster.setup()
-	js := joysticks.Connect(*joystickIndex)
+	controller.run() // Does not return
+}
+
+type tankController struct {
+	joystickIndex           int
+	toggleControlModeButton int
+	useSingleStick          bool
+
+	tank tank.SmoothTank
+
+	Direct      DirectMotorController
+	SingleStick OneStickMotorController
+}
+
+func (c *tankController) registerFlags() {
+	c.Direct.RegisterFlags()
+	c.SingleStick.RegisterFlags()
+	c.tank.RegisterFlags()
+	flag.IntVar(&c.joystickIndex, "js", c.joystickIndex, "Joystick device index")
+	flag.IntVar(&c.toggleControlModeButton, "toggleControlModeButton", c.toggleControlModeButton, "Joystick Button index that toggles between one-stick and two-stick control")
+	flag.BoolVar(&c.useSingleStick, "singleStick", c.useSingleStick, "Use single stick for controlling motors")
+}
+
+func (c *tankController) run() {
+	// Initialize USB/I2C peripherals
+	c.tank.Start()
+
+	// Connect Joystick
+	js := joysticks.Connect(c.joystickIndex)
 	if js == nil {
-		log.Fatalln("Failed to open joystick with index", *joystickIndex)
+		log.Fatalln("Failed to open joystick with index", c.joystickIndex)
 	}
 	log.Printf("Opened device index %v (%v buttons, %v axes, %v events)",
-		*joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
+		c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
 
-	go adjuster.adjustSpeedLoop()
-	if *useSingleTick {
-		singleStickController.Setup(js, &adjuster.left, &adjuster.right)
+	// Setup joystick controls
+	controlButton := uint8(c.toggleControlModeButton)
+	if js.ButtonExists(controlButton) {
+		toggleMode := js.OnButton(controlButton)
+		go func() {
+			for range toggleMode {
+				log.Println("Toggled control mode. Now using single stick: %v", c.useSingleStick)
+				c.toggleMotorController(js)
+			}
+		}()
 	} else {
-		directController.Setup(js, &adjuster.left, &adjuster.right)
+		log.Fatalf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
 	}
+
+	// Setup motor control
+	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
+	c.toggleMotorController(js)
+
+	// Start receiving joystick events
 	js.ParcelOutEvents() // Does not return
 }
 
-type Motor struct {
-	target   float32
-	current  float32
-	adjuster *speedAdjuster
+func (c *tankController) stop() {
+	c.tank.Stop()
 }
 
-func (m *Motor) SetSpeed(val float32) {
-	m.target = val
-	m.adjuster.notifyChangedPosition()
-}
-
-type speedAdjuster struct {
-	tank           tank.Tank
-	sleepTime      time.Duration
-	accelSlopeTime time.Duration
-	decelSlopeTime time.Duration
-	dummyMode      bool
-	minSpeed       float64
-
-	// Current position
-	left  Motor
-	right Motor
-
-	adjustCond *sync.Cond
-	stopFlag   bool
-}
-
-func (a *speedAdjuster) registerFlags() {
-	a.tank.RegisterFlags()
-	flag.Float64Var(&a.minSpeed, "minSpeed", a.minSpeed, "Minimum speed for all motors and directions")
-	flag.DurationVar(&a.sleepTime, "adjustSleep", a.sleepTime, "Time to sleep between motor adjustments")
-	flag.DurationVar(&a.accelSlopeTime, "accelSlopeTime", a.accelSlopeTime, "Maximum time for a motor to ramp up between 0% and 100%")
-	flag.DurationVar(&a.decelSlopeTime, "decelSlopeTime", a.decelSlopeTime, "Maximum time for a motor to ramp down between 100% and 0%")
-	flag.BoolVar(&a.dummyMode, "dummy", a.dummyMode, "Dummy mode: do not use USB/I2C peripherals, just print motor values")
-}
-
-func (a *speedAdjuster) adjustSpeedLoop() {
-	accelStep := float32(math.MaxFloat32)
-	decelStep := float32(math.MaxFloat32)
-	if a.accelSlopeTime > 0 {
-		accelStep = float32(a.sleepTime) / float32(a.accelSlopeTime)
-	}
-	if a.decelSlopeTime > 0 {
-		decelStep = float32(a.sleepTime) / float32(a.decelSlopeTime)
-	}
-	for !a.stopFlag {
-		// Wait for incorrect position of any motor
-		a.adjustCond.L.Lock()
-		for a.left.target == a.left.current && a.right.target == a.right.current && !a.stopFlag {
-			a.adjustCond.Wait()
-		}
-		a.adjustCond.L.Unlock()
-		if !a.stopFlag {
-			a.adjustSpeed(&a.left, accelStep, decelStep)
-			a.adjustSpeed(&a.right, accelStep, decelStep)
-			leftPos := a.calcSpeed(a.left.current)
-			rightPos := a.calcSpeed(a.right.current)
-			if !a.dummyMode {
-				golib.Printerr(a.tank.Motors.Set(leftPos, rightPos))
-			} else {
-				log.Printf("Setting motors to left: %v right: %v", leftPos, rightPos)
-			}
-			time.Sleep(a.sleepTime)
-		}
-	}
-}
-
-func (a *speedAdjuster) adjustSpeed(m *Motor, accelStep, decelStep float32) {
-	cur := m.current
-	forward := cur > 0           // Currently driving forward
-	increasing := m.target > cur // Target momentum is more forward-oriented than currently
-
-	adjustStep := decelStep
-	if forward == increasing {
-		adjustStep = accelStep
-	}
-	if !increasing {
-		adjustStep = -adjustStep
-	}
-
-	if math.Abs(float64(cur-m.target)) <= math.Abs(float64(adjustStep)) {
-		m.current = m.target
+func (c *tankController) toggleMotorController(js *joysticks.HID) {
+	c.useSingleStick = !c.useSingleStick
+	if c.useSingleStick {
+		c.SingleStick.Setup(js, c.tank.Left(), c.tank.Right())
 	} else {
-		m.current = cur + adjustStep
+		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
 	}
-}
-
-func (a *speedAdjuster) calcSpeed(val float32) float64 {
-	min := float32(a.minSpeed)
-	if min > 0 && min < 1 && val != 0 {
-		if val < 0 {
-			val = -min + (1-min)*val
-		} else {
-			val = min + (1-min)*val
-		}
-	}
-	if val == -0 {
-		return 0
-	}
-	return float64(val * 100)
-}
-
-func (a *speedAdjuster) setup() {
-	a.left.adjuster = a
-	a.right.adjuster = a
-	if a.dummyMode {
-		log.Println("Dummy mode: not connecting USB/I2C peripherals")
-	} else {
-		golib.Checkerr(a.tank.Setup())
-		golib.Checkerr(a.tank.Motors.Init())
-		log.Println("Successfully initialized USB/I2C peripherals, now connecting joystick...")
-	}
-}
-
-func (a *speedAdjuster) stop() {
-	a.adjustCond.L.Lock()
-	defer a.adjustCond.L.Unlock()
-	if !a.dummyMode {
-		a.tank.Motors.Set(0, 0)
-		a.tank.Cleanup()
-	}
-	a.left.current = 0
-	a.left.target = 0
-	a.right.current = 0
-	a.right.target = 0
-	a.stopFlag = true
-	a.adjustCond.Broadcast()
-}
-
-func (a *speedAdjuster) notifyChangedPosition() {
-	a.adjustCond.L.Lock()
-	defer a.adjustCond.L.Unlock()
-	a.adjustCond.Broadcast()
 }

@@ -145,6 +145,7 @@ const (
 )
 
 const (
+	BYTE_PER_OUTPUT  = 4
 	TIMER_MAX        = 4095
 	TIMER_RESOLUTION = TIMER_MAX + 1
 
@@ -244,4 +245,61 @@ func PrescalerExternalClock(externalOscillator float64, frequency float64) byte 
 
 func Prescaler(frequency float64) byte {
 	return PrescalerExternalClock(INTERNAL_OSCILLATOR, frequency)
+}
+
+type PwmOutput struct {
+	CurrentState   []float64
+	OptimizeUpdate bool
+}
+
+func (m *PwmOutput) FillCurrentState(newState []float64) []float64 {
+	if len(newState) < len(m.CurrentState) {
+		newState = append(newState, m.CurrentState[len(newState):]...)
+	} else if len(newState) > len(m.CurrentState) {
+		return newState[:len(m.CurrentState)]
+	}
+	return newState
+}
+
+func (m *PwmOutput) Update(firstPwmOutput byte, newState []float64) []byte {
+	if len(m.CurrentState) != len(newState) {
+		m.CurrentState = make([]float64, len(newState))
+		m.OptimizeUpdate = false
+	}
+	numPwmOutputs := len(newState)
+
+	// Compute smallest possible range of values to be updated
+	updateFrom := 0
+	updateTo := numPwmOutputs
+	if m.OptimizeUpdate {
+		for i := range newState {
+			if m.CurrentState[i] == newState[i] {
+				updateFrom++
+			} else {
+				break
+			}
+		}
+		for i := range newState {
+			if m.CurrentState[numPwmOutputs-1-i] == newState[numPwmOutputs-1-i] {
+				updateTo--
+			} else {
+				break
+			}
+		}
+		if updateFrom >= updateTo {
+			// The desired state is already deployed
+			return nil
+		}
+	}
+	copy(m.CurrentState, newState)
+	m.OptimizeUpdate = true
+	numChanges := updateTo - updateFrom
+
+	// Compute raw bytes to be sent to the device
+	pwmValues := make([]byte, BYTE_PER_OUTPUT*numChanges)
+	for i, val := range newState[updateFrom:updateTo] {
+		ValuesInto(val, pwmValues[BYTE_PER_OUTPUT*i:])
+	}
+
+	return append([]byte{firstPwmOutput + byte(updateFrom)*BYTE_PER_OUTPUT}, pwmValues...)
 }

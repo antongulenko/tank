@@ -1,6 +1,9 @@
 package main
 
-import "github.com/splace/joysticks"
+import (
+	"github.com/antongulenko/tank/tank"
+	"github.com/splace/joysticks"
+)
 
 type DirectMotorController struct {
 	LeftAxis  JoystickAxisOneDimension
@@ -12,7 +15,7 @@ func (c *DirectMotorController) RegisterFlags() {
 	c.RightAxis.RegisterFlags("right", "right motor")
 }
 
-func (m *DirectMotorController) Setup(js *joysticks.HID, left, right *Motor) {
+func (m *DirectMotorController) Setup(js *joysticks.HID, left, right tank.Motor) {
 	m.LeftAxis.Notify(js, func(val float32) {
 		left.SetSpeed(val)
 	})

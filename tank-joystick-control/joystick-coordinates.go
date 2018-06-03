@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"sync"
 
 	"github.com/splace/joysticks"
 )
@@ -19,6 +20,9 @@ type JoystickAxis struct {
 
 	// If true, scale the value range to adjust for zeroFrom/zeroTo and make the entire value range -1..1 available
 	ScaleZeroFromTo bool
+
+	currentHook    func(x, y float32)
+	notifyLoopOnce sync.Once
 }
 
 func (m *JoystickAxis) RegisterFlags(prefix string, desc string) {
@@ -35,26 +39,30 @@ func (m *JoystickAxis) RegisterFlags(prefix string, desc string) {
 	}
 }
 
-func (a *JoystickAxis) Notify(js *joysticks.HID, hook func(x, y float32)) {
+func (a *JoystickAxis) Notify(js *joysticks.HID, newHook func(x, y float32)) {
 	if !js.HatExists(uint8(a.AxisNumber)) {
 		panic(fmt.Sprintf("Joystick axis (%v) does not exist on device %v", a.AxisNumber, js))
 	}
-	moved := js.OnMove(uint8(a.AxisNumber))
-	go func() {
-		for event := range moved {
-			coords := event.(joysticks.CoordsEvent)
-			x, y := coords.X, coords.Y
-			if a.InvertX {
-				x = -x
+	a.currentHook = newHook
+	a.notifyLoopOnce.Do(func() {
+		moved := js.OnMove(uint8(a.AxisNumber))
+		go func() {
+			for event := range moved {
+				coords := event.(joysticks.CoordsEvent)
+				x, y := coords.X, coords.Y
+				if a.InvertX {
+					x = -x
+				}
+				if a.InvertY || (a.SingleInvertFlag && a.InvertX) {
+					y = -y
+				}
+				x, y = a.convert(x), a.convert(y)
+				if hook := a.currentHook; hook != nil {
+					hook(x, y)
+				}
 			}
-			if a.InvertY || (a.SingleInvertFlag && a.InvertX) {
-				y = -y
-			}
-			x, y = a.convert(x), a.convert(y)
-			hook(x, y)
-		}
-	}()
-
+		}()
+	})
 }
 
 func (a *JoystickAxis) convert(val float32) float32 {
