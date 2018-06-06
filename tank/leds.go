@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const NumLeds = 3
+const NumLeds = 15
 
 type MainLeds struct {
 	bus ft260.I2cBus

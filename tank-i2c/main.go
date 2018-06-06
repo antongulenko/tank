@@ -301,7 +301,7 @@ func setTankLeds() error {
 	for i, val := range values {
 		pca9685.ValuesInto(val, pwmValues[pca9685.BYTE_PER_OUTPUT*i:])
 	}
-	log.Printf("Writing %v byte to led driver: %v", len(pwmValues), pwmValues)
 	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
+	log.Printf("Writing %v byte to led driver: %v", len(pwmValues), pwmValues)
 	return t.Bus().I2cWrite(byte(ledI2cAddr), pwmValues...)
 }
