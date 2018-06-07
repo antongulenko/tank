@@ -25,7 +25,7 @@ func (m *SmoothMotor) SetSpeed(val float32) {
 }
 
 type SmoothTank struct {
-	Tank           Tank
+	Tank
 	SleepTime      time.Duration
 	AccelSlopeTime time.Duration
 	DecelSlopeTime time.Duration
@@ -57,7 +57,7 @@ func (a *SmoothTank) Setup() error {
 	return nil
 }
 
-func (a *SmoothTank) Stop() {
+func (a *SmoothTank) Cleanup() {
 	a.adjustCond.L.Lock()
 	defer a.adjustCond.L.Unlock()
 	a.Tank.Cleanup()
@@ -98,7 +98,7 @@ func (a *SmoothTank) adjustSpeedLoop() {
 			a.adjustSpeed(&a.right, accelStep, decelStep)
 			leftPos := a.calcSpeed(a.left.current)
 			rightPos := a.calcSpeed(a.right.current)
-			golib.Printerr(a.Tank.Motors.Set(leftPos, rightPos))
+			golib.Printerr(a.Motors.Set(leftPos, rightPos))
 			time.Sleep(a.SleepTime)
 		}
 	}

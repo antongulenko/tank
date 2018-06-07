@@ -88,7 +88,8 @@ func (d *Ft260) i2cWrite(addr byte, stop bool, busBusy bool, data []byte) error 
 	}
 	for i, payload := range payloads {
 		condition := conditions[i]
-		if err := d.i2cSingleWrite(addr, condition, busBusy, payload); err != nil {
+		busy := busBusy || i < len(payloads)-1
+		if err := d.i2cSingleWrite(addr, condition, busy, payload); err != nil {
 			if len(payloads) > 1 {
 				err = fmt.Errorf("Error on write transaction %v out of %v: %v", i+1, len(payloads), err)
 			}

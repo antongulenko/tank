@@ -139,7 +139,7 @@ func (c *tankController) run() {
 			values[i] = 1
 		}
 		log.Printf("Led axis value %v, enabling %v leds", val, numLeds)
-		golib.Printerr(c.tank.Tank.Leds.Set(values))
+		golib.Printerr(c.tank.Leds.Set(values))
 	})
 
 	// Setup motor control
@@ -151,7 +151,7 @@ func (c *tankController) run() {
 }
 
 func (c *tankController) stop() {
-	c.tank.Stop()
+	c.tank.Cleanup()
 }
 
 func (c *tankController) toggleMotorController(js *joysticks.HID) {
@@ -167,4 +167,14 @@ func (c *tankController) toggleMotorController(js *joysticks.HID) {
 		c.SingleStick.Enabled = false
 		c.Direct.Setup(js, c.tank.Left(), c.tank.Right())
 	}
+}
+
+func (c *tankController) runLedStartupSequence(numRounds int) error {
+	return tank.RunLedStartupSequence(numRounds, func(sleepTime time.Duration, values []float64) error {
+		if err := c.tank.Leds.Set(values); err != nil {
+			return err
+		}
+		time.Sleep(sleepTime)
+		return nil
+	})
 }

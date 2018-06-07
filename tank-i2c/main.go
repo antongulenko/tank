@@ -23,7 +23,7 @@ var (
 	command           = "scan"
 	ledI2cAddr        = uint(0x44)
 	availableCommands = []string{
-		"none", "scan", "bench", "gpio", "motors", "motorDirect", "tankLeds",
+		"none", "scan", "bench", "gpio", "motors", "motorDirect", "leds", "tankLeds", "tankLedStartup",
 	}
 	motorSpeed1 = float64(0)
 	motorSpeed2 = float64(0)
@@ -69,8 +69,12 @@ func doMain() error {
 		return setMotors(mcp23017.ADDRESS, motorSpeed1, motorSpeed2)
 	case "motorDirect":
 		return setMotorDirect(motorSpeed1)
+	case "leds":
+		return setRawLeds()
 	case "tankLeds":
 		return setTankLeds()
+	case "tankLedStartup":
+		return playTankLedStartup()
 	default:
 		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
 	}
@@ -277,7 +281,7 @@ func setMotorDirect(speed float64) error {
 	return t.Motors.Set(speed, speed)
 }
 
-func setTankLeds() error {
+func setRawLeds() error {
 	var values []float64
 	for _, valueStr := range flag.Args() {
 		value, err := strconv.ParseFloat(valueStr, 64)
@@ -304,4 +308,32 @@ func setTankLeds() error {
 	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
 	log.Printf("Writing %v byte to led driver: %v", len(pwmValues), pwmValues)
 	return t.Bus().I2cWrite(byte(ledI2cAddr), pwmValues...)
+}
+
+func setTankLeds() error {
+	var values []float64
+	for _, valueStr := range flag.Args() {
+		value, err := strconv.ParseFloat(valueStr, 64)
+		if err != nil {
+			log.Errorf("Failed to parse argument '%v' as float: %v", valueStr, err)
+			continue
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return fmt.Errorf("No valid values given for setting LEDs")
+	}
+	log.Printf("Setting %v led value(s): %v", len(values), values)
+
+	return t.Leds.Set(values)
+}
+
+func playTankLedStartup() error {
+	return tank.RunLedStartupSequence(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
+		if err := t.Leds.Set(values); err != nil {
+			return err
+		}
+		time.Sleep(sleepTime)
+		return nil
+	})
 }
