@@ -11,6 +11,7 @@ import (
 
 type Motor interface {
 	SetSpeed(val float32)
+	GetSpeed() float32
 }
 
 type SmoothMotor struct {
@@ -22,6 +23,10 @@ type SmoothMotor struct {
 func (m *SmoothMotor) SetSpeed(val float32) {
 	m.target = val
 	m.tank.notifyChangedPosition()
+}
+
+func (m *SmoothMotor) GetSpeed() float32 {
+	return m.current
 }
 
 type SmoothTank struct {

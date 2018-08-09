@@ -6,35 +6,49 @@ import (
 	"time"
 )
 
-const (
-	LedPeakRadius     = 4                       // Number of LEDs around the brightness peak, that are not dark
-	LedSleepTime      = 50 * time.Millisecond   // Time resolution for LED updates
-	LedPeakTravelTime = 1300 * time.Millisecond // Time for one brightness peak to travel all LEDs
+var DefaultLedSequence = LedSequence{
+	Circle:         true,
+	Bounce:         false,
+	NumLeds:        15,
+	PeakRadius:     4,
+	SleepTime:      50 * time.Millisecond,
+	PeakTravelTime: 1300 * time.Millisecond,
+}
 
-	LedStepsPerRound = float64(LedPeakTravelTime / LedSleepTime)
-	LedTimeStep      = NumLeds / LedStepsPerRound
-)
+type LedSequence struct {
+	Circle         bool
+	Bounce         bool
+	NumLeds        int
+	PeakRadius     int           // Number of LEDs around the brightness peak, that are not dark
+	SleepTime      time.Duration // Time resolution for LED updates
+	PeakTravelTime time.Duration // Time for one brightness peak to travel all LEDs
+}
 
-func RunLedStartupSequence(numRounds int, callback func(sleepTime time.Duration, values []float64) error) error {
-	values := make([]float64, NumLeds)
-	numSteps := LedStepsPerRound * float64(numRounds)
+func (s *LedSequence) Run(numRounds int, callback func(sleepTime time.Duration, values []float64) error) error {
+	stepsPerRound := float64(s.PeakTravelTime / s.SleepTime)
+	timeStep := float64(s.NumLeds) / stepsPerRound
+
+	values := make([]float64, s.NumLeds)
+	numSteps := stepsPerRound * float64(numRounds)
 	for i := float64(0); i < numSteps; i++ {
-		_setLedValuesCircling(false, i, values)
-		// _setLedValuesCircling(true, i, values)
-		// _setLedValuesBouncing(i, values)
+		if s.Circle {
+			s.setLedValuesCircling(timeStep, s.Bounce, i, values)
+		} else {
+			s.setLedValuesBouncing(timeStep, i, values)
+		}
 
 		// Reorder the middle 5 leds
 		values[5], values[6], values[7], values[8], values[9] = values[9], values[8], values[7], values[6], values[5]
 
-		if err := callback(LedSleepTime, values); err != nil {
-			return fmt.Errorf("Error during LED startup sequence, step %v of %v: %v", i, numSteps, err)
+		if err := callback(s.SleepTime, values); err != nil {
+			return fmt.Errorf("Error during LED sequence, step %v of %v: %v", i, numSteps, err)
 		}
 	}
 	return nil
 }
 
-func _setLedValuesBouncing(x float64, values []float64) {
-	t := x * LedTimeStep
+func (s *LedSequence) setLedValuesBouncing(timeStep float64, x float64, values []float64) {
+	t := x * timeStep
 	max := float64(len(values))
 	mid := t - math.Floor(t/max)*max
 
@@ -54,16 +68,16 @@ func _setLedValuesBouncing(x float64, values []float64) {
 			x = -x3
 		}
 
-		if math.Abs(x) > LedPeakRadius {
+		if math.Abs(x) > float64(s.PeakRadius) {
 			values[i] = 0
 		} else {
-			v := math.Cos(x / LedPeakRadius * math.Pi)
+			v := math.Cos(x / float64(s.PeakRadius) * math.Pi)
 			values[i] = (v + 1) / 2 // Map to 0..1
 		}
 	}
 }
 
-func _setLedValuesCircling(bounce bool, x float64, values []float64) {
+func (s *LedSequence) setLedValuesCircling(timeStep float64, bounce bool, x float64, values []float64) {
 	if bounce {
 		max := 3.2 * float64(len(values))
 		x = x - math.Floor(x/max)*max
@@ -72,7 +86,7 @@ func _setLedValuesCircling(bounce bool, x float64, values []float64) {
 		}
 	}
 
-	t := x * LedTimeStep
+	t := x * timeStep
 	max := float64(len(values))
 	mid := t - math.Floor(t/max)*max
 
@@ -90,10 +104,10 @@ func _setLedValuesCircling(bounce bool, x float64, values []float64) {
 			x = -x3
 		}
 
-		if math.Abs(x) > LedPeakRadius {
+		if math.Abs(x) > float64(s.PeakRadius) {
 			values[i] = 0
 		} else {
-			v := math.Cos(x / LedPeakRadius * math.Pi)
+			v := math.Cos(x / float64(s.PeakRadius) * math.Pi)
 			values[i] = (v + 1) / 2 // Map to 0..1
 		}
 	}

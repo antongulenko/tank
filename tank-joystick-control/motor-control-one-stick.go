@@ -72,11 +72,3 @@ func convertStickToDirections(x, y float64) (l, r float64) {
 	}
 	return
 }
-
-func scaleWithin(start, end, percent float32) float32 {
-	return start + (end-start)*percent
-}
-
-func scaleDownwardsWithin(start, end, percent float32) float32 {
-	return end - (end-start)*percent
-}

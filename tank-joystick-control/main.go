@@ -30,6 +30,7 @@ func main() {
 	controller := tankController{
 		joystickIndex:           1,
 		toggleControlModeButton: 1,
+		ledSequenceButton:       2,
 		useSingleStick:          false,
 		tank: tank.SmoothTank{
 			Tank:           tank.DefaultTank,
@@ -59,6 +60,10 @@ func main() {
 				SingleInvertFlag: true,
 			},
 		},
+		ledSequence:           tank.DefaultLedSequence,
+		startupSequenceRounds: 2,
+		ledControlLoopSleep:   100 * time.Millisecond,
+		heartbeatStep:         0.1,
 	}
 	controller.SingleStick.Axis.SingleInvertFlag = false
 
@@ -66,6 +71,14 @@ func main() {
 	golib.RegisterFlags(golib.FlagsAll)
 	flag.Parse()
 	golib.ConfigureLogging()
+
+	controller.ledSequence.NumLeds = controller.tank.Leds.NumLeds
+	red, green, yellow := controller.tank.Leds.Groups()
+	controller.heartbeatLeds = controller.tank.Leds.Group(green.To, green.To)
+	green.To-- // Reserve one LED for the heartbeat
+	controller.batteryLeds = red
+	controller.speedLeds = yellow
+	controller.manualLeds = green
 
 	// "Clean" shutdown with Ctrl-C signal
 	c := make(chan os.Signal, 1)
@@ -87,6 +100,7 @@ func main() {
 type tankController struct {
 	joystickIndex           int
 	toggleControlModeButton int
+	ledSequenceButton       int
 	useSingleStick          bool
 
 	tank tank.SmoothTank
@@ -94,7 +108,18 @@ type tankController struct {
 	Direct      DirectMotorController
 	SingleStick OneStickMotorController
 
-	LedAxis JoystickAxisOneDimension
+	LedAxis               JoystickAxisOneDimension
+	startupSequenceRounds int
+	ledSequence           tank.LedSequence
+	ledControlLoopSleep   time.Duration
+	sequenceRunning       bool
+	ledControlTime        uint64
+	heartbeatStep         float64
+
+	batteryLeds   tank.LedGroup
+	speedLeds     tank.LedGroup
+	manualLeds    tank.LedGroup
+	heartbeatLeds tank.LedGroup
 }
 
 func (c *tankController) registerFlags() {
@@ -102,9 +127,13 @@ func (c *tankController) registerFlags() {
 	c.Direct.RegisterFlags()
 	c.SingleStick.RegisterFlags()
 	c.tank.RegisterFlags()
+	flag.IntVar(&c.startupSequenceRounds, "startup-sequence", c.startupSequenceRounds, "Number of startup sequence rounds (can be disabled)")
 	flag.IntVar(&c.joystickIndex, "js", c.joystickIndex, "Joystick device index")
+	flag.IntVar(&c.ledSequenceButton, "led-sequence-button", c.ledSequenceButton, "Joystick Button index to manually trigger LED sequence")
 	flag.IntVar(&c.toggleControlModeButton, "toggleControlModeButton", c.toggleControlModeButton, "Joystick Button index that toggles between one-stick and two-stick control")
 	flag.BoolVar(&c.useSingleStick, "singleStick", c.useSingleStick, "Use single stick for controlling motors")
+	flag.DurationVar(&c.ledControlLoopSleep, "led-control-sleep", c.ledControlLoopSleep, "Sleep time in LED control loop (displaying motor speed and battery voltage)")
+	flag.Float64Var(&c.heartbeatStep, "heartbeat-step", c.heartbeatStep, "Heartbeat progress per LED control loop step")
 }
 
 func (c *tankController) run() {
@@ -119,7 +148,27 @@ func (c *tankController) run() {
 	log.Printf("Opened device index %v (%v buttons, %v axes, %v events)",
 		c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
 
-	// Setup joystick controls
+	// Setup misc joystick controls
+	c.setupJoystickControls(js)
+
+	// Setup motor control
+	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
+	c.toggleMotorController(js)
+
+	// Run startup sequence
+	if c.startupSequenceRounds > 0 {
+		log.Println("Initialization done, running LED startup sequence...")
+		c.runLedSequence(c.startupSequenceRounds)
+	}
+
+	// Display motor speed, battery voltage
+	go c.ledControlLoop()
+
+	// Start receiving joystick events
+	js.ParcelOutEvents() // Does not return
+}
+
+func (c *tankController) setupJoystickControls(js *joysticks.HID) {
 	controlButton := uint8(c.toggleControlModeButton)
 	if js.ButtonExists(controlButton) {
 		toggleMode := js.OnLong(controlButton)
@@ -131,23 +180,23 @@ func (c *tankController) run() {
 	} else {
 		log.Fatalf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
 	}
-
+	sequenceButton := uint8(c.ledSequenceButton)
+	if js.ButtonExists(sequenceButton) {
+		runSequence := js.OnButton(sequenceButton)
+		go func() {
+			for range runSequence {
+				c.runLedSequence(1)
+			}
+		}()
+	} else {
+		log.Fatalf("Button for manually triggering LED sequence (index %v) does not exist on joystick", sequenceButton)
+	}
 	c.LedAxis.Notify(js, func(val float32) {
-		numLeds := int(math.Floor(float64((val+1)/2) * tank.NumLeds))
-		values := make([]float64, tank.NumLeds)
-		for i := 0; i < numLeds; i++ {
-			values[i] = 1
+		if !c.sequenceRunning {
+			log.Println("Led axis value:", val)
+			golib.Printerr(c.manualLeds.Set(float64(val)))
 		}
-		log.Printf("Led axis value %v, enabling %v leds", val, numLeds)
-		golib.Printerr(c.tank.Leds.Set(values))
 	})
-
-	// Setup motor control
-	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
-	c.toggleMotorController(js)
-
-	// Start receiving joystick events
-	js.ParcelOutEvents() // Does not return
 }
 
 func (c *tankController) stop() {
@@ -169,12 +218,50 @@ func (c *tankController) toggleMotorController(js *joysticks.HID) {
 	}
 }
 
-func (c *tankController) runLedStartupSequence(numRounds int) error {
-	return tank.RunLedStartupSequence(numRounds, func(sleepTime time.Duration, values []float64) error {
-		if err := c.tank.Leds.Set(values); err != nil {
-			return err
+func (c *tankController) runLedSequence(numRounds int) error {
+	c.sequenceRunning = true
+	defer func() {
+		c.sequenceRunning = false
+	}()
+	return c.ledSequence.Run(numRounds, func(sleepTime time.Duration, values []float64) (err error) {
+		err = c.tank.Leds.SetAll(values)
+		if err == nil {
+			time.Sleep(sleepTime)
 		}
-		time.Sleep(sleepTime)
-		return nil
+		return
 	})
+}
+
+func (c *tankController) ledControlLoop() {
+	for {
+		if !c.sequenceRunning {
+			// Display battery
+			batt, err := c.tank.Adc.GetBatteryVoltage()
+			if err != nil {
+				log.Errorln("Error querying battery voltage:", err)
+			} else {
+				if err := c.batteryLeds.Set(batt); err != nil {
+					log.Errorln("Error displaying battery voltage:", err)
+				}
+			}
+
+			// Display speed
+			left := math.Abs(float64(c.tank.Left().GetSpeed()))
+			right := math.Abs(float64(c.tank.Right().GetSpeed()))
+			avgSpeed := (left + right) / 2
+			if err := c.speedLeds.Set(avgSpeed); err != nil {
+				log.Errorln("Error displaying motor speed:", err)
+			}
+
+			// Progress heartbeat
+			heartbeatVal := math.Sin(float64(c.ledControlTime) * c.heartbeatStep * math.Pi)
+			heartbeatVal = (heartbeatVal + 1) / 2
+			if err := c.heartbeatLeds.Set(heartbeatVal); err != nil {
+				log.Errorln("Error displaying heartbeat:", err)
+			}
+
+			c.ledControlTime++
+		}
+		time.Sleep(c.ledControlLoopSleep)
+	}
 }
