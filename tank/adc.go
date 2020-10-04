@@ -1,10 +1,9 @@
 package tank
 
 import (
-	"log"
-
 	"github.com/antongulenko/tank/ads1115"
 	"github.com/antongulenko/tank/ft260"
+	log "github.com/sirupsen/logrus"
 )
 
 // Measure diff AIN0 to AIN3 continuously in 0..6V, comparator disabled
@@ -35,19 +34,27 @@ func (a *Adc) Init() error {
 	}
 }
 
-func (a *Adc) GetBatteryVoltage() (float64, error) {
+func (a *Adc) GetBatteryVoltage() (int16, error) {
 	if a.Dummy {
-		return 1, nil
+		return int16(a.BatteryMax), nil
 	}
-	val, err := ads1115.ReadRegisterDirectly(a.bus, a.I2cAddr)
+	return ads1115.ReadRegisterDirectly(a.bus, a.I2cAddr)
+}
+
+func (a *Adc) ConvertVoltageToPercentage(voltage int16) float64 {
+	if int64(voltage) < a.BatteryMin {
+		return 0
+	}
+	if int64(voltage) > a.BatteryMax {
+		return 1
+	}
+	return float64(voltage) / float64(a.BatteryMax-a.BatteryMin)
+}
+
+func (a *Adc) GetBatteryPercentage() (float64, error) {
+	val, err := a.GetBatteryVoltage()
 	if err != nil {
 		return 0, err
 	}
-	if int64(val) < a.BatteryMin {
-		return 0, nil
-	}
-	if int64(val) > a.BatteryMax {
-		return 1, nil
-	}
-	return float64(val) / float64(a.BatteryMax-a.BatteryMin), nil
+	return a.ConvertVoltageToPercentage(val), nil
 }

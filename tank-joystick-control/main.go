@@ -236,7 +236,7 @@ func (c *tankController) ledControlLoop() {
 	for {
 		if !c.sequenceRunning {
 			// Display battery
-			batt, err := c.tank.Adc.GetBatteryVoltage()
+			batt, err := c.tank.Adc.GetBatteryPercentage()
 			if err != nil {
 				log.Errorln("Error querying battery voltage:", err)
 			} else {

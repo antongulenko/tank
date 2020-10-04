@@ -326,6 +326,9 @@ func setTankLeds() error {
 	}
 	log.Printf("Setting %v led value(s): %v", len(values), values)
 
+	if err := t.Leds.Init(); err != nil {
+		return err
+	}
 	return t.Leds.SetAll(values)
 }
 
@@ -346,10 +349,11 @@ func readBatteryVoltage() error {
 	if err := t.Adc.Init(); err != nil {
 		return err
 	}
-	val, err := t.Adc.GetBatteryVoltage()
+	volt, err := t.Adc.GetBatteryVoltage()
 	if err != nil {
 		return err
 	}
-	log.Printf("Read battery percentage: %v", val)
+	percentage := t.Adc.ConvertVoltageToPercentage(volt)
+	log.Printf("Battery percentage: %.2v%% (%v voltage measured)", percentage*100, volt)
 	return nil
 }
