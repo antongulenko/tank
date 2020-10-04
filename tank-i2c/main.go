@@ -38,7 +38,7 @@ func main() {
 	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
 	flag.Float64Var(&motorSpeed1, "m1", motorSpeed1, "Speed of motor 1 (-100..100)")
 	flag.Float64Var(&motorSpeed2, "m2", motorSpeed2, "Speed of motor 2 (-100..100)")
-	flag.BoolVar(&debugMotors, "debugMotors", false, "Ouput values that would be written, instead of writing them")
+	flag.BoolVar(&debugMotors, "debugMotors", false, "Output values that would be written, instead of writing them")
 	golib.RegisterLogFlags()
 	flag.Parse()
 	golib.ConfigureLogging()
@@ -49,7 +49,7 @@ func doMain() error {
 	if err := t.Setup(); err != nil {
 		return err
 	}
-	log.Println("Successfully opened and configured FT260 device")
+	log.Println("Successfully initialized USB/I2C peripherals")
 
 	switch command {
 	case "none":
@@ -179,7 +179,6 @@ func gpioTest(addr byte) error {
 		val = ^val
 		time.Sleep(sleepTime)
 	}
-	return nil
 }
 
 const (
@@ -325,15 +324,18 @@ func setTankLeds() error {
 	}
 	log.Printf("Setting %v led value(s): %v", len(values), values)
 
-	return t.Leds.Set(values)
+	return t.Leds.SetAll(values)
 }
 
 func playTankLedStartup() error {
-	return tank.RunLedStartupSequence(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
-		if err := t.Leds.Set(values); err != nil {
-			return err
-		}
-		time.Sleep(sleepTime)
-		return nil
-	})
+	return fmt.Errorf("Startup sequence not yet implemented")
+	/*
+		return tank.RunLedStartupSequence(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
+			if err := t.Leds.Set(values); err != nil {
+				return err
+			}
+			time.Sleep(sleepTime)
+			return nil
+		})
+	*/
 }

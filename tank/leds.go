@@ -53,9 +53,9 @@ func (m *MainLeds) DisableAll() error {
 }
 
 func (m *MainLeds) Groups() (red, green, yellow LedGroup) {
-	red = m.Group(0, 5)    // TODO
-	green = m.Group(0, 5)  // TODO
-	yellow = m.Group(0, 5) // TODO
+	yellow = m.Group(0, 4)
+	red = m.Group(5, 9)
+	green = m.Group(10, 14)
 	return
 }
 

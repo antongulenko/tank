@@ -101,6 +101,10 @@ func (t *Tank) Setup() error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (t *Tank) InitI2cPeripherals() error {
 	if err := t.Motors.Init(); err != nil {
 		return err
 	}
@@ -110,7 +114,6 @@ func (t *Tank) Setup() error {
 	if err := t.Adc.Init(); err != nil {
 		return err
 	}
-	log.Println("Successfully initialized USB/I2C peripherals")
 	return nil
 }
 

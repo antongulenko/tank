@@ -58,6 +58,9 @@ func (a *SmoothTank) Setup() error {
 	if err := a.Tank.Setup(); err != nil {
 		return err
 	}
+	if err := a.Tank.InitI2cPeripherals(); err != nil {
+		return err
+	}
 	go a.adjustSpeedLoop()
 	return nil
 }
