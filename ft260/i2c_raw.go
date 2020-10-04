@@ -7,7 +7,7 @@ const (
 	ReportID_I2CRead      = 0xC2 // Output
 	ReportID_I2CInOut     = 0xD0 // 0xD0 - 0xDE, Input, Output
 	ReportID_I2CInOut_Max = 0xDE
-	// Max size of I2C write payload: (1 + Report ID - 0xD0) * 4 byte
+	// Max size of I2C write payload: (1 + Report ID - 0xD0) * 4 byte = 60 byte
 
 	I2CMaxPayload = (1 + ReportID_I2CInOut_Max - ReportID_I2CInOut) * 4
 )
@@ -23,11 +23,11 @@ const (
 )
 
 const (
-	I2C_MasterNone      = 0x0
-	I2C_MasterStart     = 0x2
-	I2C_MasterRepStart  = 0x3
-	I2C_MasterStop      = 0x4
-	I2C_MasterStartStop = 0x6
+	I2C_MasterNone      = byte(0x0)
+	I2C_MasterStart     = byte(0x2)
+	I2C_MasterRepStart  = byte(0x3)
+	I2C_MasterStop      = byte(0x4)
+	I2C_MasterStartStop = byte(0x6)
 )
 
 func I2cMasterCodeString(code byte) string {

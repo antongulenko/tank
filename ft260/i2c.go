@@ -59,17 +59,17 @@ func (e *I2cError) Error() string {
 }
 
 func (d *Ft260) I2cWrite(addr byte, data ...byte) error {
-	return d.i2cWrite(addr, I2C_MasterStartStop, false, data)
+	return d.i2cWrite(addr, true, false, data)
 }
 
 func (d *Ft260) I2cRead(addr byte, data []byte) error {
-	return d.i2cRead(addr, I2C_MasterStartStop, false, data)
+	return d.i2cRead(addr, true, false, data)
 }
 
 func (d *Ft260) I2cWriteRead(addr byte, out, in []byte) error {
-	err := d.i2cWrite(addr, I2C_MasterStart, true, out) // No STOP!
+	err := d.i2cWrite(addr, false, true, out) // No STOP!
 	if err == nil {
-		err = d.i2cRead(addr, I2C_MasterStartStop, false, in)
+		err = d.i2cRead(addr, true, false, in)
 	}
 	return err
 }
@@ -81,7 +81,73 @@ func (d *Ft260) I2cGet(addr byte, registerAddr byte, size int) ([]byte, error) {
 	return receive, err
 }
 
-func (d *Ft260) i2cWrite(addr byte, condition byte, busBusy bool, data []byte) error {
+func (d *Ft260) i2cWrite(addr byte, stop bool, busBusy bool, data []byte) error {
+	payloads, conditions := i2cSplitTransaction(stop, data)
+	if len(payloads) == 0 {
+		return nil
+	}
+	for i, payload := range payloads {
+		condition := conditions[i]
+		busy := busBusy || i < len(payloads)-1
+		if err := d.i2cSingleWrite(addr, condition, busy, payload); err != nil {
+			if len(payloads) > 1 {
+				err = fmt.Errorf("Error on write transaction %v out of %v: %v", i+1, len(payloads), err)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *Ft260) i2cRead(addr byte, stop bool, busBusy bool, data []byte) error {
+	payloads, conditions := i2cSplitTransaction(stop, data)
+	if len(payloads) == 0 {
+		return nil
+	}
+	for i, payload := range payloads {
+		condition := conditions[i]
+		if err := d.i2cSingleRead(addr, condition, busBusy, payload); err != nil {
+			if len(payloads) > 1 {
+				err = fmt.Errorf("Error on read transaction %v out of %v: %v", i+1, len(payloads), err)
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func i2cSplitTransaction(stop bool, data []byte) (payloads [][]byte, conditions []byte) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	num_transactions := len(data) / I2CMaxPayload
+	if len(data)%I2CMaxPayload != 0 {
+		num_transactions++
+	}
+	payloads = make([][]byte, num_transactions)
+	conditions = make([]byte, num_transactions)
+	for i := 0; i < num_transactions; i++ {
+		from := i * I2CMaxPayload
+		to := (i + 1) * I2CMaxPayload
+		if to > len(data) {
+			to = len(data)
+		}
+		condition := I2C_MasterNone
+		switch {
+		case i == 0 && num_transactions == 1 && stop:
+			condition = I2C_MasterStartStop
+		case i == 0:
+			condition = I2C_MasterStart
+		case i == num_transactions-1 && stop:
+			condition = I2C_MasterStop
+		}
+		payloads[i] = data[from:to]
+		conditions[i] = condition
+	}
+	return
+}
+
+func (d *Ft260) i2cSingleWrite(addr byte, condition byte, busBusy bool, data []byte) error {
 	op := OperationI2cWrite{
 		SlaveAddr: addr,
 		Condition: condition,
@@ -95,7 +161,7 @@ func (d *Ft260) i2cWrite(addr byte, condition byte, busBusy bool, data []byte) e
 	return d.extendError(err, "writing", addr, condition, data)
 }
 
-func (d *Ft260) i2cRead(addr byte, condition byte, busBusy bool, data []byte) error {
+func (d *Ft260) i2cSingleRead(addr byte, condition byte, busBusy bool, data []byte) error {
 	op := OperationI2cRead{
 		SlaveAddr: addr,
 		Condition: condition,

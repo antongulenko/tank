@@ -4,9 +4,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 
 	"github.com/antongulenko/golib"
 	"github.com/antongulenko/hid"
+	"github.com/antongulenko/tank/ads1115"
 	"github.com/antongulenko/tank/ft260"
 	"github.com/antongulenko/tank/pca9685"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +27,12 @@ var DefaultTank = Tank{
 	Leds: MainLeds{
 		I2cAddr:  pca9685.ADDRESS + 4, // A2 pin set
 		PwmStart: pca9685.LED0,
+		NumLeds:  15,
+	},
+	Adc: Adc{
+		I2cAddr:    ads1115.ADDR_GND,
+		BatteryMin: 0,
+		BatteryMax: math.MaxInt16,
 	},
 }
 
@@ -37,6 +45,7 @@ type Tank struct {
 
 	Motors MainMotors
 	Leds   MainLeds
+	Adc    Adc
 
 	usb       *ft260.Ft260
 	sequencer sequencedI2cBus
@@ -48,7 +57,11 @@ func (t *Tank) RegisterFlags() {
 	flag.BoolVar(&t.NoI2cSequencer, "no-i2c-sequencer", t.NoI2cSequencer, "Disable the extra goroutine for sequencing I2C commands")
 	flag.BoolVar(&t.Motors.Dummy, "dummy-motors", t.Motors.Dummy, "Disable real motor control, only output commands")
 	flag.BoolVar(&t.Leds.Dummy, "dummy-leds", t.Leds.Dummy, "Disable real led control, only output values")
+	flag.IntVar(&t.Leds.NumLeds, "num-leds", t.Leds.NumLeds, "Number of main leds")
+	flag.BoolVar(&t.Adc.Dummy, "dummy-adc", t.Adc.Dummy, "Disable real ADC, always read max value")
 	flag.BoolVar(&t.Dummy, "dummy", t.Dummy, "Disable USB/I2C peripherals")
+	flag.Int64Var(&t.Adc.BatteryMin, "battery-min", t.Adc.BatteryMin, "Minimum value for battery voltage")
+	flag.Int64Var(&t.Adc.BatteryMax, "battery-max", t.Adc.BatteryMax, "Minimum value for battery voltage")
 }
 
 func (t *Tank) Setup() error {
@@ -56,6 +69,7 @@ func (t *Tank) Setup() error {
 		log.Println("Dummy tank: skipping initialization of USB/I2C peripherals")
 		t.Leds.Dummy = true
 		t.Motors.Dummy = true
+		t.Adc.Dummy = true
 	} else {
 		t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
 		if !t.NoI2cSequencer {
@@ -74,6 +88,7 @@ func (t *Tank) Setup() error {
 		t.sequencer.usb = t.usb
 		t.Motors.bus = t.Bus()
 		t.Leds.bus = t.Bus()
+		t.Adc.bus = t.Bus()
 
 		// Configure and validate system settings
 		if err := t.validateFt260ChipCode(); err != nil {
@@ -90,6 +105,9 @@ func (t *Tank) Setup() error {
 		return err
 	}
 	if err := t.Leds.Init(); err != nil {
+		return err
+	}
+	if err := t.Adc.Init(); err != nil {
 		return err
 	}
 	log.Println("Successfully initialized USB/I2C peripherals")
