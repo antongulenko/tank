@@ -122,6 +122,6 @@ func ReadRegisterDirectly(bus ft260.I2cBus, i2cAddr byte) (int16, error) {
 
 func parseConversionRegister(v []byte) int16 {
 	result := int16(v[1])      // Least-significant byte
-	result &= int16(v[0]) << 8 // Most-significant byte
+	result |= int16(v[0]) << 8 // Most-significant byte
 	return result
 }
