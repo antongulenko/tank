@@ -75,6 +75,8 @@ func doMain() error {
 		return setTankLeds()
 	case "tankLedStartup":
 		return playTankLedStartup()
+	case "battery":
+		return readBatteryVoltage()
 	default:
 		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
 	}
@@ -338,4 +340,16 @@ func playTankLedStartup() error {
 			return nil
 		})
 	*/
+}
+
+func readBatteryVoltage() error {
+	if err := t.Adc.Init(); err != nil {
+		return err
+	}
+	val, err := t.Adc.GetBatteryVoltage()
+	if err != nil {
+		return err
+	}
+	log.Printf("Read battery percentage: %v", val)
+	return nil
 }

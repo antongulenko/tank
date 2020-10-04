@@ -34,7 +34,7 @@ func (m *MainLeds) Init() error {
 }
 
 func (m *MainLeds) SetAll(values []float64) error {
-	values = m.pwmOutput.FillCurrentState(values)
+	// values = m.pwmOutput.FillCurrentState(values)
 	return m.update(m.PwmStart, values)
 }
 
