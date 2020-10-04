@@ -253,10 +253,12 @@ type PwmOutput struct {
 }
 
 func (m *PwmOutput) FillCurrentState(newState []float64) []float64 {
-	if len(newState) < len(m.CurrentState) {
-		newState = append(newState, m.CurrentState[len(newState):]...)
-	} else if len(newState) > len(m.CurrentState) {
-		return newState[:len(m.CurrentState)]
+	if m.CurrentState != nil {
+		if len(newState) < len(m.CurrentState) {
+			newState = append(newState, m.CurrentState[len(newState):]...)
+		} else if len(newState) > len(m.CurrentState) {
+			return newState[:len(m.CurrentState)]
+		}
 	}
 	return newState
 }
