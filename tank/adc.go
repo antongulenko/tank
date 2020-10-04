@@ -6,8 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Measure diff AIN0 to AIN3 continuously in 0..6V, comparator disabled
-const adcConfig = ads1115.CONFIG_MUX_03 | ads1115.CONFIG_DR_32 | ads1115.CONFIG_PGA_6V | ads1115.CONFIG_COMP_QUE_OFF
+// Measure diff AIN0 to AIN1 continuously in 0..6V, comparator disabled
+const adcConfig = ads1115.CONFIG_MUX_01 | ads1115.CONFIG_DR_32 | ads1115.CONFIG_PGA_6V | ads1115.CONFIG_COMP_QUE_OFF
 
 type Adc struct {
 	bus ft260.I2cBus
