@@ -98,6 +98,16 @@ const (
 	CONFIG_COMP_QUE_OFF = uint16(3)
 )
 
+const (
+	// Values to calculate actual measured voltage from conversion bytes, through multiplication. Result in V.
+	CONVERT_6V    = 6.144 / 0x7FFF
+	CONVERT_4V    = 4.096 / 0x7FFF
+	CONVERT_2V    = 2.048 / 0x7FFF
+	CONVERT_1V    = 1.024 / 0x7FFF
+	CONVERT_0_5V  = 0.512 / 0x7FFF
+	CONVERT_0_25V = 0.256 / 0x7FFF
+)
+
 func WriteRegister(bus ft260.I2cBus, i2cAddr byte, register byte, val uint16) error {
 	return bus.I2cWrite(i2cAddr, register, byte(val>>8), byte(val))
 }
@@ -110,7 +120,7 @@ func ReadRegister(bus ft260.I2cBus, i2cAddr byte, register byte) (int16, error) 
 	if err != nil {
 		return 0, err
 	}
-	return parseConversionRegister(v), nil
+	return parseRegisterBytes(v), nil
 }
 
 func ReadRegisterDirectly(bus ft260.I2cBus, i2cAddr byte) (int16, error) {
@@ -122,10 +132,10 @@ func ReadRegisterDirectly(bus ft260.I2cBus, i2cAddr byte) (int16, error) {
 	if err != nil {
 		return 0, err
 	}
-	return parseConversionRegister(v), nil
+	return parseRegisterBytes(v), nil
 }
 
-func parseConversionRegister(v []byte) int16 {
+func parseRegisterBytes(v []byte) int16 {
 	log.Printf("Received %v ADS bytes: %#x %#x", len(v), v[0], v[1])
 	result := int16(v[1])      // Least-significant byte
 	result |= int16(v[0]) << 8 // Most-significant byte

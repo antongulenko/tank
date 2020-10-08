@@ -12,8 +12,8 @@ const adcConfig = ads1115.CONFIG_MUX_03 | ads1115.CONFIG_DR_32 | ads1115.CONFIG_
 type Adc struct {
 	bus ft260.I2cBus
 
-	BatteryMin int64
-	BatteryMax int64
+	BatteryMin float64
+	BatteryMax float64
 
 	I2cAddr byte
 	Dummy   bool
@@ -34,21 +34,25 @@ func (a *Adc) Init() error {
 	}
 }
 
-func (a *Adc) GetBatteryVoltage() (int16, error) {
+func (a *Adc) GetBatteryVoltage() (float64, error) {
 	if a.Dummy {
-		return int16(a.BatteryMax), nil
+		return a.BatteryMax, nil
 	}
-	return ads1115.ReadRegisterDirectly(a.bus, a.I2cAddr)
+	val, err := ads1115.ReadRegisterDirectly(a.bus, a.I2cAddr)
+	if err != nil {
+		return 0, err
+	}
+	return float64(val) * ads1115.CONVERT_6V, nil
 }
 
-func (a *Adc) ConvertVoltageToPercentage(voltage int16) float64 {
-	if int64(voltage) < a.BatteryMin {
+func (a *Adc) ConvertVoltageToPercentage(voltage float64) float64 {
+	if voltage < a.BatteryMin {
 		return 0
 	}
-	if int64(voltage) > a.BatteryMax {
+	if voltage > a.BatteryMax {
 		return 1
 	}
-	return float64(voltage) / float64(a.BatteryMax-a.BatteryMin)
+	return voltage / (a.BatteryMax - a.BatteryMin)
 }
 
 func (a *Adc) GetBatteryPercentage() (float64, error) {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"math"
 
 	"github.com/antongulenko/golib"
 	"github.com/antongulenko/hid"
@@ -31,8 +30,8 @@ var DefaultTank = Tank{
 	},
 	Adc: Adc{
 		I2cAddr:    ads1115.ADDR_GND,
-		BatteryMin: 0,
-		BatteryMax: math.MaxInt16,
+		BatteryMin: 3, // TODO measure and set better defaults
+		BatteryMax: 5,
 	},
 }
 
@@ -60,8 +59,8 @@ func (t *Tank) RegisterFlags() {
 	flag.IntVar(&t.Leds.NumLeds, "num-leds", t.Leds.NumLeds, "Number of main leds")
 	flag.BoolVar(&t.Adc.Dummy, "dummy-adc", t.Adc.Dummy, "Disable real ADC, always read max value")
 	flag.BoolVar(&t.Dummy, "dummy", t.Dummy, "Disable USB/I2C peripherals")
-	flag.Int64Var(&t.Adc.BatteryMin, "battery-min", t.Adc.BatteryMin, "Minimum value for battery voltage")
-	flag.Int64Var(&t.Adc.BatteryMax, "battery-max", t.Adc.BatteryMax, "Minimum value for battery voltage")
+	flag.Float64Var(&t.Adc.BatteryMin, "battery-min", t.Adc.BatteryMin, "Minimum value for battery voltage")
+	flag.Float64Var(&t.Adc.BatteryMax, "battery-max", t.Adc.BatteryMax, "Minimum value for battery voltage")
 }
 
 func (t *Tank) Setup() error {
