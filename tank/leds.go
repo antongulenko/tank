@@ -13,19 +13,20 @@ const ledDriverConfig = pca9685.MODE1_ALLCALL | pca9685.MODE1_AI
 type MainLeds struct {
 	bus ft260.I2cBus
 
-	I2cAddr byte
-	Dummy   bool
-	NumLeds int
+	I2cAddr  byte
+	Dummy    bool
+	SkipInit bool
+	NumLeds  int
 
 	PwmStart  byte // pca9685.LED0
 	pwmOutput pca9685.PwmOutput
 }
 
 func (m *MainLeds) Init() error {
-	if m.Dummy {
-		log.Println("Skipping initialization of dummy leds")
+	if m.Dummy || m.SkipInit {
+		log.Println("Skipping initialization of LEDs")
 	} else {
-		log.Printf("Initializing LED PWM driver at %02x...", m.I2cAddr)
+		log.Printf("Initializing LED PWM driver at %#02x...", m.I2cAddr)
 		if err := m.bus.I2cWrite(m.I2cAddr, pca9685.MODE1, ledDriverConfig); err != nil {
 			return err
 		}

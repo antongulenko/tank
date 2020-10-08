@@ -11,24 +11,25 @@ import (
 type MainMotors struct {
 	bus ft260.I2cBus
 
-	I2cAddr byte
-	Dummy   bool
+	I2cAddr  byte
+	Dummy    bool
+	SkipInit bool
 
 	InvertRightDir, InvertLeftDir bool
 
 	// Starting from the first PWM output, the order of outputs must be:
-	// left motor, right motor, left direction, right direction
+	// dir1, pwm1, dir2, pwm2
 	PwmStart byte // pca9685.LED0
 
 	pwmOutput pca9685.PwmOutput
 }
 
 func (m *MainMotors) Init() error {
-	if m.Dummy {
-		log.Println("Skipping initialization of dummy motors")
+	if m.Dummy || m.SkipInit {
+		log.Println("Skipping initialization of motors")
 		return nil
 	} else {
-		log.Printf("Initializing motor PWM driver at %02x...", m.I2cAddr)
+		log.Printf("Initializing motor PWM driver at %#02x...", m.I2cAddr)
 		return m.bus.I2cWrite(m.I2cAddr, pca9685.MODE1, pca9685.MODE1_ALLCALL|pca9685.MODE1_AI)
 	}
 }
@@ -54,7 +55,7 @@ func (m *MainMotors) Set(left, right float64) error {
 		return
 	}
 	newState := []float64{
-		leftSpeed, rightSpeed, dirToFloat(leftDir), dirToFloat(rightDir),
+		dirToFloat(leftDir), leftSpeed, dirToFloat(rightDir), rightSpeed,
 	}
 	pwmValues := m.pwmOutput.Update(m.PwmStart, newState)
 

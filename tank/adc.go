@@ -15,13 +15,14 @@ type Adc struct {
 	BatteryMin float64
 	BatteryMax float64
 
-	I2cAddr byte
-	Dummy   bool
+	I2cAddr  byte
+	Dummy    bool
+	SkipInit bool
 }
 
 func (a *Adc) Init() error {
-	if a.Dummy {
-		log.Println("Skipping initialization of dummy ADC")
+	if a.Dummy || a.SkipInit {
+		log.Println("Skipping initialization of ADC")
 		return nil
 	} else {
 		log.Printf("Initializing ADC device at %#02x...", a.I2cAddr)

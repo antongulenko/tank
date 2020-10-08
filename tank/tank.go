@@ -41,6 +41,7 @@ type Tank struct {
 	I2cRequestQueue int
 	NoI2cSequencer  bool
 	Dummy           bool
+	SkipInit        bool
 
 	Motors MainMotors
 	Leds   MainLeds
@@ -54,21 +55,36 @@ func (t *Tank) RegisterFlags() {
 	flag.StringVar(&t.UsbDevice, "dev", t.UsbDevice, "Specify a USB path for FT260")
 	flag.UintVar(&t.I2cFreq, "freq", t.I2cFreq, "The I2C bus frequency (60 - 3400)")
 	flag.BoolVar(&t.NoI2cSequencer, "no-i2c-sequencer", t.NoI2cSequencer, "Disable the extra goroutine for sequencing I2C commands")
-	flag.BoolVar(&t.Motors.Dummy, "dummy-motors", t.Motors.Dummy, "Disable real motor control, only output commands")
-	flag.BoolVar(&t.Leds.Dummy, "dummy-leds", t.Leds.Dummy, "Disable real led control, only output values")
-	flag.IntVar(&t.Leds.NumLeds, "num-leds", t.Leds.NumLeds, "Number of main leds")
-	flag.BoolVar(&t.Adc.Dummy, "dummy-adc", t.Adc.Dummy, "Disable real ADC, always read max value")
 	flag.BoolVar(&t.Dummy, "dummy", t.Dummy, "Disable USB/I2C peripherals")
+	flag.BoolVar(&t.SkipInit, "skip-init", t.Dummy, "Do not initialize USB/I2C peripherals, but use for subsequent commands")
+
+	// Motors
+	flag.BoolVar(&t.Motors.Dummy, "dummy-motors", t.Motors.Dummy, "Disable real motor control, only output commands")
+	flag.BoolVar(&t.Motors.SkipInit, "skip-init-motors", t.Leds.Dummy, "Do not initialize motor I2C device, but use for subsequent commands")
+
+	// LEDs
+	flag.BoolVar(&t.Leds.Dummy, "dummy-leds", t.Leds.Dummy, "Disable real LED control, only output values")
+	flag.BoolVar(&t.Leds.SkipInit, "skip-init-leds", t.Leds.Dummy, "Do not initialize LED I2C device, but use for subsequent commands")
+	flag.IntVar(&t.Leds.NumLeds, "num-leds", t.Leds.NumLeds, "Number of main leds")
+
+	// ADC, Battery
+	flag.BoolVar(&t.Adc.Dummy, "dummy-adc", t.Adc.Dummy, "Disable real ADC control, only output values")
+	flag.BoolVar(&t.Adc.SkipInit, "skip-init-adc", t.Leds.Dummy, "Do not initialize ADC I2C device, but use for subsequent commands")
 	flag.Float64Var(&t.Adc.BatteryMin, "battery-min", t.Adc.BatteryMin, "Minimum value for battery voltage")
 	flag.Float64Var(&t.Adc.BatteryMax, "battery-max", t.Adc.BatteryMax, "Minimum value for battery voltage")
 }
 
 func (t *Tank) Setup() error {
 	if t.Dummy {
-		log.Println("Dummy tank: skipping initialization of USB/I2C peripherals")
+		log.Println("Dummy tank: not using USB/I2C peripherals")
 		t.Leds.Dummy = true
 		t.Motors.Dummy = true
 		t.Adc.Dummy = true
+	} else if t.SkipInit {
+		log.Println("Not initializing USB/I2C peripherals")
+		t.Leds.SkipInit = true
+		t.Motors.SkipInit = true
+		t.Adc.SkipInit = true
 	} else {
 		t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
 		if !t.NoI2cSequencer {
