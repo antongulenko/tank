@@ -24,7 +24,7 @@ func (a *Adc) Init() error {
 		log.Println("Skipping initialization of dummy ADC")
 		return nil
 	} else {
-		log.Printf("Initializing ADC device at %02x...", a.I2cAddr)
+		log.Printf("Initializing ADC device at %#02x...", a.I2cAddr)
 		err := ads1115.WriteRegister(a.bus, a.I2cAddr, ads1115.REG_CONFIG, adcConfig)
 		if err == nil {
 			// Configure the address of the register to be read by future reads
