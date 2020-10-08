@@ -2,7 +2,7 @@ package ads1115
 
 import (
 	"fmt"
-    "log"
+	"log"
 
 	"github.com/antongulenko/tank/ft260"
 )
@@ -18,7 +18,9 @@ const (
 
 	// Can be issued as second byte directly after an I2C general call to power down the device
 	GENERAL_CALL_SHUTDOWN = byte(0x06)
+)
 
+const (
 	// The addresses of the writable/readable registers
 	REG_CONVERSION = byte(iota)
 	REG_CONFIG
@@ -34,7 +36,9 @@ const (
 	// Operational State. If written, starts a one-short conversion.
 	// If read, indicates whether conversion is taking place (1 = NO operation)
 	CONFIG_OS = uint16(0x8000)
+)
 
+const (
 	// Selection of inputs. First number is the positive input, second number the negative input.
 	// Example: CONFIG_MUX_01 compares AIN0 to AIN1. CONFIG_MUX_1GND compares AIN1 to GND
 	// Default: CONFIG_MUX_01
@@ -122,7 +126,7 @@ func ReadRegisterDirectly(bus ft260.I2cBus, i2cAddr byte) (int16, error) {
 }
 
 func parseConversionRegister(v []byte) int16 {
-    log.Printf("Received %v ADS bytes: %#x %#x", len(v), v[0], v[1])
+	log.Printf("Received %v ADS bytes: %#x %#x", len(v), v[0], v[1])
 	result := int16(v[1])      // Least-significant byte
 	result |= int16(v[0]) << 8 // Most-significant byte
 	return result
