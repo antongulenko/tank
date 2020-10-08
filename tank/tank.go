@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/antongulenko/golib"
 	"github.com/antongulenko/hid"
 	"github.com/antongulenko/tank/ads1115"
 	"github.com/antongulenko/tank/ft260"
@@ -56,20 +55,20 @@ func (t *Tank) RegisterFlags() {
 	flag.UintVar(&t.I2cFreq, "freq", t.I2cFreq, "The I2C bus frequency (60 - 3400)")
 	flag.BoolVar(&t.NoI2cSequencer, "no-i2c-sequencer", t.NoI2cSequencer, "Disable the extra goroutine for sequencing I2C commands")
 	flag.BoolVar(&t.Dummy, "dummy", t.Dummy, "Disable USB/I2C peripherals")
-	flag.BoolVar(&t.SkipInit, "skip-init", t.Dummy, "Do not initialize USB/I2C peripherals, but use for subsequent commands")
+	flag.BoolVar(&t.SkipInit, "skip-init", t.SkipInit, "Do not initialize USB/I2C peripherals, but use for subsequent commands")
 
 	// Motors
 	flag.BoolVar(&t.Motors.Dummy, "dummy-motors", t.Motors.Dummy, "Disable real motor control, only output commands")
-	flag.BoolVar(&t.Motors.SkipInit, "skip-init-motors", t.Leds.Dummy, "Do not initialize motor I2C device, but use for subsequent commands")
+	flag.BoolVar(&t.Motors.SkipInit, "skip-init-motors", t.Motors.SkipInit, "Do not initialize motor I2C device, but use for subsequent commands")
 
 	// LEDs
 	flag.BoolVar(&t.Leds.Dummy, "dummy-leds", t.Leds.Dummy, "Disable real LED control, only output values")
-	flag.BoolVar(&t.Leds.SkipInit, "skip-init-leds", t.Leds.Dummy, "Do not initialize LED I2C device, but use for subsequent commands")
+	flag.BoolVar(&t.Leds.SkipInit, "skip-init-leds", t.Leds.SkipInit, "Do not initialize LED I2C device, but use for subsequent commands")
 	flag.IntVar(&t.Leds.NumLeds, "num-leds", t.Leds.NumLeds, "Number of main leds")
 
 	// ADC, Battery
 	flag.BoolVar(&t.Adc.Dummy, "dummy-adc", t.Adc.Dummy, "Disable real ADC control, only output values")
-	flag.BoolVar(&t.Adc.SkipInit, "skip-init-adc", t.Leds.Dummy, "Do not initialize ADC I2C device, but use for subsequent commands")
+	flag.BoolVar(&t.Adc.SkipInit, "skip-init-adc", t.Adc.SkipInit, "Do not initialize ADC I2C device, but use for subsequent commands")
 	flag.Float64Var(&t.Adc.BatteryMin, "battery-min", t.Adc.BatteryMin, "Minimum value for battery voltage")
 	flag.Float64Var(&t.Adc.BatteryMax, "battery-max", t.Adc.BatteryMax, "Minimum value for battery voltage")
 }
@@ -80,12 +79,14 @@ func (t *Tank) Setup() error {
 		t.Leds.Dummy = true
 		t.Motors.Dummy = true
 		t.Adc.Dummy = true
-	} else if t.SkipInit {
-		log.Println("Not initializing USB/I2C peripherals")
-		t.Leds.SkipInit = true
-		t.Motors.SkipInit = true
-		t.Adc.SkipInit = true
 	} else {
+		if t.SkipInit {
+			log.Println("Not initializing USB/I2C peripherals")
+			t.Leds.SkipInit = true
+			t.Motors.SkipInit = true
+			t.Adc.SkipInit = true
+		}
+
 		t.sequencer.i2cQueue = make(chan *I2cRequest, t.I2cRequestQueue)
 		if !t.NoI2cSequencer {
 			go t.sequencer.handleI2cRequests()
@@ -143,10 +144,18 @@ func (t *Tank) Bus() ft260.I2cBus {
 }
 
 func (t *Tank) Cleanup() {
-	t.Motors.Set(0, 0)
-	t.Leds.DisableAll()
-	golib.Printerr(hid.Shutdown())
-	golib.Printerr(t.usb.Close())
+	if err := t.Motors.Set(0, 0); err != nil {
+		log.Errorf("Cleanup: Failed to disable motors: %v", err)
+	}
+	if err := t.Leds.DisableAll(); err != nil {
+		log.Errorf("Cleanup: Failed to disabled LEDs: %v", err)
+	}
+	if err := hid.Shutdown(); err != nil {
+		log.Errorf("Cleanup: Failed to stop USB HID device: %v", err)
+	}
+	if err := t.usb.Close(); err != nil {
+		log.Errorf("Cleanup: Failed to close USB connection: %v", err)
+	}
 }
 
 func (t *Tank) validateFt260ChipCode() error {
