@@ -354,6 +354,6 @@ func readBatteryVoltage() error {
 		return err
 	}
 	percentage := t.Adc.ConvertVoltageToPercentage(volt)
-	log.Printf("Battery percentage: %.2v%% (%v voltage measured)", percentage*100, volt)
+	log.Printf("Battery percentage: %.2f%% (%.2fV)", percentage*100, volt)
 	return nil
 }

@@ -2,7 +2,6 @@ package ads1115
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/antongulenko/tank/ft260"
 )
@@ -136,7 +135,6 @@ func ReadRegisterDirectly(bus ft260.I2cBus, i2cAddr byte) (int16, error) {
 }
 
 func parseRegisterBytes(v []byte) int16 {
-	log.Printf("Received %v ADS bytes: %#x %#x", len(v), v[0], v[1])
 	result := int16(v[1])      // Least-significant byte
 	result |= int16(v[0]) << 8 // Most-significant byte
 	return result

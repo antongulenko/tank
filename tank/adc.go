@@ -53,7 +53,7 @@ func (a *Adc) ConvertVoltageToPercentage(voltage float64) float64 {
 	if voltage > a.BatteryMax {
 		return 1
 	}
-	return voltage / (a.BatteryMax - a.BatteryMin)
+	return (voltage - a.BatteryMin) / (a.BatteryMax - a.BatteryMin)
 }
 
 func (a *Adc) GetBatteryPercentage() (float64, error) {
