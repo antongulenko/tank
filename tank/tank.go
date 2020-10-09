@@ -26,6 +26,10 @@ var DefaultTank = Tank{
 		I2cAddr:  pca9685.ADDRESS + 4, // A2 pin set
 		PwmStart: pca9685.LED0,
 		NumLeds:  15,
+		PwmOutput: pca9685.PwmOutput{
+			ValuesFrom: 0,
+			ValuesTo:   0.7, // Max brightness, higher values have no visible change
+		},
 	},
 	Adc: Adc{
 		I2cAddr:    ads1115.ADDR_GND,

@@ -247,7 +247,18 @@ func Prescaler(frequency float64) byte {
 	return PrescalerExternalClock(INTERNAL_OSCILLATOR, frequency)
 }
 
+func ScaleValue(val float64, from, to float64) float64 {
+	if to > from && to > 0 {
+		val = from + (to-from)*val
+	}
+	return val
+}
+
 type PwmOutput struct {
+	// Can be set to >0 to scale values into this range
+	ValuesFrom float64
+	ValuesTo   float64
+
 	CurrentState   []float64
 	OptimizeUpdate bool
 }
@@ -307,6 +318,7 @@ func (m *PwmOutput) Update(firstPwmOutput byte, newState []float64) []byte {
 	// Compute raw bytes to be sent to the device
 	pwmValues := make([]byte, BYTE_PER_OUTPUT*numChanges)
 	for i, val := range newState[updateFrom:updateTo] {
+		val = ScaleValue(val, m.ValuesFrom, m.ValuesTo)
 		ValuesInto(val, pwmValues[BYTE_PER_OUTPUT*i:])
 	}
 

@@ -19,7 +19,7 @@ type MainLeds struct {
 	NumLeds  int
 
 	PwmStart  byte // pca9685.LED0
-	pwmOutput pca9685.PwmOutput
+	PwmOutput pca9685.PwmOutput
 }
 
 func (m *MainLeds) Init() error {
@@ -35,12 +35,12 @@ func (m *MainLeds) Init() error {
 }
 
 func (m *MainLeds) SetAll(values []float64) error {
-	values = m.pwmOutput.FillCurrentState(values, 0)
+	values = m.PwmOutput.FillCurrentState(values, 0)
 	return m.update(values)
 }
 
 func (m *MainLeds) update(values []float64) error {
-	pwmValues := m.pwmOutput.Update(m.PwmStart, values)
+	pwmValues := m.PwmOutput.Update(m.PwmStart, values)
 	if m.Dummy {
 		log.Printf("Dummy Leds: update to values: %v", values)
 		return nil
@@ -77,7 +77,7 @@ func (m *MainLeds) SetRow(from, to byte, val float64) error {
 	num := to - from + 1
 	slice := 1 / float64(num)
 	fullOn := math.Floor(val / slice)
-	rest := val - fullOn
+	rest := val - (fullOn * slice)
 	fullOnI := int(fullOn)
 
 	values := make([]float64, num)
@@ -90,7 +90,7 @@ func (m *MainLeds) SetRow(from, to byte, val float64) error {
 			values[i] = 0
 		}
 	}
-	values = m.pwmOutput.FillCurrentState(values, from)
+	values = m.PwmOutput.FillCurrentState(values, from)
 	return m.update(values)
 }
 

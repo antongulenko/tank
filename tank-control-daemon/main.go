@@ -152,6 +152,9 @@ func (c *tankController) run() {
 			log.Errorf("Startup LED sequence failed: %v", err)
 		}
 	}
+	if err := c.manualLeds.Set(0); err != nil {
+		log.Errorf("Failed to disable manual LEDs: %v", err)
+	}
 
 	// Display motor speed, battery voltage. Does not return.
 	c.ledControlLoop()
