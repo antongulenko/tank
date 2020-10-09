@@ -64,7 +64,7 @@ func main() {
 		ledSequence:           tank.DefaultLedSequence,
 		startupSequenceRounds: 2,
 		ledControlLoopSleep:   100 * time.Millisecond,
-		heartbeatStep:         0.1,
+		heartbeatStep:         0.001,
 	}
 	controller.SingleStick.Axis.SingleInvertFlag = false
 
@@ -143,7 +143,7 @@ func (c *tankController) run() {
 	// Initialize USB/I2C peripherals
 	golib.Checkerr(c.tank.Setup())
 
-	go c.waitForJoystick()
+	go c.waitAndInitJoysticks()
 
 	// Run startup sequence
 	if c.startupSequenceRounds > 0 {
@@ -157,21 +157,19 @@ func (c *tankController) run() {
 	c.ledControlLoop()
 }
 
-func (c *tankController) waitForJoystick() {
-	// Connect Joystick
+func (c *tankController) waitAndInitJoysticks() {
+	// Wait until Joysticks can be initialized successfully
 	var js *joysticks.HID
+	var err error
 	for {
-		js = joysticks.Connect(c.joystickIndex)
-		if js != nil {
+		if js, err = c.setupJoysticks(); err != nil {
+			log.Errorf("Failed to setup Joysticks: %v. Retrying in %v...", err, c.joystickRetryDuration)
+			time.Sleep(c.joystickRetryDuration)
+		} else {
 			log.Printf("Opened joystick device index %v (%v buttons, %v axes, %v events)", c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
 			break
 		}
-		log.Errorf("Failed to open joystick with index %v, retrying in %v...", c.joystickIndex, c.joystickRetryDuration)
-		time.Sleep(c.joystickRetryDuration)
 	}
-
-	// Setup misc joystick controls
-	c.setupJoystickControls(js)
 
 	// Setup motor control
 	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
@@ -181,7 +179,12 @@ func (c *tankController) waitForJoystick() {
 	js.ParcelOutEvents() // Does not return
 }
 
-func (c *tankController) setupJoystickControls(js *joysticks.HID) {
+func (c *tankController) setupJoysticks() (*joysticks.HID, error) {
+	js := joysticks.Connect(c.joystickIndex)
+	if js == nil {
+		return nil, fmt.Errorf("Failed to open joystick with index %v, retrying in %v...", c.joystickIndex, c.joystickRetryDuration)
+	}
+
 	controlButton := uint8(c.toggleControlModeButton)
 	if js.ButtonExists(controlButton) {
 		toggleMode := js.OnLong(controlButton)
@@ -191,7 +194,7 @@ func (c *tankController) setupJoystickControls(js *joysticks.HID) {
 			}
 		}()
 	} else {
-		log.Fatalf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
+		return nil, fmt.Errorf("Button for toggling control mode (index %v) does not exist on joystick", controlButton)
 	}
 	sequenceButton := uint8(c.ledSequenceButton)
 	if js.ButtonExists(sequenceButton) {
@@ -204,7 +207,7 @@ func (c *tankController) setupJoystickControls(js *joysticks.HID) {
 			}
 		}()
 	} else {
-		log.Fatalf("Button for manually triggering LED sequence (index %v) does not exist on joystick", sequenceButton)
+		return nil, fmt.Errorf("Button for manually triggering LED sequence (index %v) does not exist on joystick", sequenceButton)
 	}
 	c.LedAxis.Notify(js, func(val float32) {
 		if !c.sequenceRunning {
@@ -212,6 +215,7 @@ func (c *tankController) setupJoystickControls(js *joysticks.HID) {
 			golib.Printerr(c.manualLeds.Set(float64(val)))
 		}
 	})
+	return js, nil
 }
 
 func (c *tankController) stop() {
@@ -276,6 +280,7 @@ func (c *tankController) ledControlLoop() {
 			}
 
 			c.ledControlTime++
+			log.Debugf("Battery: %v, avg speed: %v, heartbeat: %v, control time: %v", batt, avgSpeed, heartbeatVal, c.ledControlTime)
 		}
 		time.Sleep(c.ledControlLoopSleep)
 	}
