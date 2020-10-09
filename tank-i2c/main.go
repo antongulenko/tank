@@ -71,7 +71,7 @@ func doMain() error {
 			allCommandNames = append(allCommandNames, commandName)
 		}
 		sort.Strings(allCommandNames)
-		return fmt.Errorf("Unknown command %v, available commands: %v", command, commands)
+		return fmt.Errorf("Unknown command %v, available commands: %v", command, allCommandNames)
 	}
 	return commandFunc()
 }
@@ -246,6 +246,9 @@ func setTankLeds() error {
 }
 
 func playTankLedStartup() error {
+	if err := t.Leds.Init(); err != nil {
+		return err
+	}
 	return tank.DefaultLedSequence.Run(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
 		if err := t.Leds.SetAll(values); err != nil {
 			return err
