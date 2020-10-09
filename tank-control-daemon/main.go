@@ -29,6 +29,7 @@ func main() {
 	rightAxis.AxisNumber = 3
 	controller := tankController{
 		joystickIndex:           1,
+		joystickRetryDuration:   2 * time.Second,
 		toggleControlModeButton: 1,
 		ledSequenceButton:       2,
 		useSingleStick:          false,
@@ -102,6 +103,7 @@ type tankController struct {
 	toggleControlModeButton int
 	ledSequenceButton       int
 	useSingleStick          bool
+	joystickRetryDuration   time.Duration
 
 	tank tank.SmoothTank
 
@@ -129,6 +131,7 @@ func (c *tankController) registerFlags() {
 	c.tank.RegisterFlags()
 	flag.IntVar(&c.startupSequenceRounds, "startup-sequence", c.startupSequenceRounds, "Number of startup sequence rounds (can be disabled)")
 	flag.IntVar(&c.joystickIndex, "js", c.joystickIndex, "Joystick device index")
+	flag.DurationVar(&c.joystickRetryDuration, "js-retry", c.joystickRetryDuration, "Time to retry joystick initialization")
 	flag.IntVar(&c.ledSequenceButton, "led-sequence-button", c.ledSequenceButton, "Joystick Button index to manually trigger LED sequence")
 	flag.IntVar(&c.toggleControlModeButton, "toggleControlModeButton", c.toggleControlModeButton, "Joystick Button index that toggles between one-stick and two-stick control")
 	flag.BoolVar(&c.useSingleStick, "singleStick", c.useSingleStick, "Use single stick for controlling motors")
@@ -140,13 +143,32 @@ func (c *tankController) run() {
 	// Initialize USB/I2C peripherals
 	golib.Checkerr(c.tank.Setup())
 
-	// Connect Joystick
-	js := joysticks.Connect(c.joystickIndex)
-	if js == nil {
-		log.Fatalln("Failed to open joystick with index", c.joystickIndex)
+	go c.waitForJoystick()
+
+	// Run startup sequence
+	if c.startupSequenceRounds > 0 {
+		log.Println("Initialization done, running LED startup sequence...")
+		if err := c.runLedSequence(c.startupSequenceRounds); err != nil {
+			log.Errorf("Startup LED sequence failed: %v", err)
+		}
 	}
-	log.Printf("Opened device index %v (%v buttons, %v axes, %v events)",
-		c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
+
+	// Display motor speed, battery voltage. Does not return.
+	c.ledControlLoop()
+}
+
+func (c *tankController) waitForJoystick() {
+	// Connect Joystick
+	var js *joysticks.HID
+	for {
+		js = joysticks.Connect(c.joystickIndex)
+		if js != nil {
+			log.Printf("Opened joystick device index %v (%v buttons, %v axes, %v events)", c.joystickIndex, len(js.Buttons), len(js.HatAxes), len(js.Events))
+			break
+		}
+		log.Errorf("Failed to open joystick with index %v, retrying in %v...", c.joystickIndex, c.joystickRetryDuration)
+		time.Sleep(c.joystickRetryDuration)
+	}
 
 	// Setup misc joystick controls
 	c.setupJoystickControls(js)
@@ -154,15 +176,6 @@ func (c *tankController) run() {
 	// Setup motor control
 	c.useSingleStick = !c.useSingleStick // Make sure the first toggle initializes the wanted controller
 	c.toggleMotorController(js)
-
-	// Run startup sequence
-	if c.startupSequenceRounds > 0 {
-		log.Println("Initialization done, running LED startup sequence...")
-		c.runLedSequence(c.startupSequenceRounds)
-	}
-
-	// Display motor speed, battery voltage
-	go c.ledControlLoop()
 
 	// Start receiving joystick events
 	js.ParcelOutEvents() // Does not return
@@ -185,7 +198,9 @@ func (c *tankController) setupJoystickControls(js *joysticks.HID) {
 		runSequence := js.OnButton(sequenceButton)
 		go func() {
 			for range runSequence {
-				c.runLedSequence(1)
+				if err := c.runLedSequence(1); err != nil {
+					log.Errorf("Triggered LED sequence failed: %v")
+				}
 			}
 		}()
 	} else {

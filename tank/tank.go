@@ -29,8 +29,8 @@ var DefaultTank = Tank{
 	},
 	Adc: Adc{
 		I2cAddr:    ads1115.ADDR_GND,
-		BatteryMin: 3, // TODO measure and set better defaults
-		BatteryMax: 5,
+		BatteryMin: 2.60,
+		BatteryMax: 3.24,
 	},
 }
 
