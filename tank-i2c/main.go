@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"math"
+	"sort"
 	"strconv"
 	"time"
 
@@ -16,14 +16,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type commandFunc func() error
+
 var (
-	t                 = tank.DefaultTank
-	sleepTime         = 400 * time.Millisecond
-	benchTime         = 3 * time.Second
-	command           = "scan"
-	ledI2cAddr        = uint(0x44)
-	availableCommands = []string{
-		"none", "scan", "bench", "gpio", "motors", "motorDirect", "leds", "tankLeds", "tankLedStartup",
+	t          = tank.DefaultTank
+	sleepTime  = 400 * time.Millisecond
+	benchTime  = 3 * time.Second
+	command    = "scan"
+	ledI2cAddr = uint(0x44)
+	commands   = map[string]commandFunc{
+		"none":           func() error { return nil },
+		"scan":           scan,
+		"bench":          gpioSpeedTest,
+		"gpio":           gpioTest,
+		"gpio-motors":    setGpioMotors,
+		"motors":         setMotors,
+		"leds":           setRawLeds,
+		"tankLeds":       setTankLeds,
+		"tankLedStartup": playTankLedStartup,
+		"battery":        readBatteryVoltage,
 	}
 	motorSpeed1 = float64(0)
 	motorSpeed2 = float64(0)
@@ -35,9 +46,9 @@ func main() {
 	flag.UintVar(&ledI2cAddr, "leds", ledI2cAddr, "I2C address of led driver for -c tankLeds")
 	flag.DurationVar(&sleepTime, "sleep", sleepTime, "Sleep time between GPIO updates (gpio command)")
 	flag.DurationVar(&benchTime, "benchTime", sleepTime, "Benchmark time (bench command)")
-	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", availableCommands))
-	flag.Float64Var(&motorSpeed1, "m1", motorSpeed1, "Speed of motor 1 (-100..100)")
-	flag.Float64Var(&motorSpeed2, "m2", motorSpeed2, "Speed of motor 2 (-100..100)")
+	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", commands))
+	flag.Float64Var(&motorSpeed1, "l", motorSpeed1, "Speed of motor 1 (-100..100)")
+	flag.Float64Var(&motorSpeed2, "r", motorSpeed2, "Speed of motor 2 (-100..100)")
 	flag.BoolVar(&debugMotors, "debugMotors", false, "Output values that would be written, instead of writing them")
 	golib.RegisterLogFlags()
 	flag.Parse()
@@ -51,39 +62,30 @@ func doMain() error {
 	}
 	log.Println("Successfully initialized USB/I2C peripherals")
 
-	switch command {
-	case "none":
-		// Nothing
-		return nil
-	case "scan":
-		slaves, err := ft260.I2cScan(t.Bus())
-		if err != nil {
-			return err
+	commandFunc, ok := commands[command]
+	if !ok {
+		allCommandNames := make([]string, 0, len(commands))
+		for commandName := range commands {
+			allCommandNames = append(allCommandNames, commandName)
 		}
-		log.Printf("Scanned slaves: %#02v", slaves)
-	case "bench":
-		return gpioSpeedTest(mcp23017.ADDRESS)
-	case "gpio":
-		return gpioTest(mcp23017.ADDRESS)
-	case "motors":
-		return setMotors(mcp23017.ADDRESS, motorSpeed1, motorSpeed2)
-	case "motorDirect":
-		return setMotorDirect(motorSpeed1)
-	case "leds":
-		return setRawLeds()
-	case "tankLeds":
-		return setTankLeds()
-	case "tankLedStartup":
-		return playTankLedStartup()
-	case "battery":
-		return readBatteryVoltage()
-	default:
-		return fmt.Errorf("Unknown command %v, available commands: %v", command, availableCommands)
+		sort.Strings(allCommandNames)
+		return fmt.Errorf("Unknown command %v, available commands: %v", command, commands)
 	}
+	return commandFunc()
+}
+
+func scan() error {
+	slaves, err := ft260.I2cScan(t.Bus())
+	if err != nil {
+		return err
+	}
+	log.Printf("Scanned slaves: %#02v", slaves)
 	return nil
 }
 
-func gpioSpeedTest(addr byte) error {
+func gpioSpeedTest() error {
+	addr := mcp23017.ADDRESS
+
 	log.Printf("Configuring GPIO extension %02x", addr)
 	if err := t.Bus().I2cWrite(addr, mcp23017.IOCON_PAIRED, gpioConfig); err != nil {
 		return err
@@ -163,7 +165,8 @@ func initGpio(addr byte) error {
 	return nil
 }
 
-func gpioTest(addr byte) error {
+func gpioTest() error {
+	addr := mcp23017.ADDRESS
 	if err := initGpio(addr); err != nil {
 		return err
 	}
@@ -183,103 +186,11 @@ func gpioTest(addr byte) error {
 	}
 }
 
-const (
-	motorStop     = 0
-	motorForward  = 1
-	motorBackward = 2
-)
-
-func setMotors(gpioAddr byte, speed1, speed2 float64) error {
-	if speed1 < -100 || speed1 > 100 {
-		return fmt.Errorf("Illegal motor speed1 %v (must be -100..100)", speed1)
-	}
-	if speed2 < -100 || speed2 > 100 {
-		return fmt.Errorf("Illegal motor speed2 %v (must be -100..100)", speed2)
-	}
-
-	// Initialize both devices first
-	if err := initGpio(gpioAddr); err != nil {
-		return err
-	}
+func setMotors() error {
 	if err := t.Motors.Init(); err != nil {
 		return err
 	}
-
-	state1 := getMotorState(speed1)
-	state2 := getMotorState(speed2)
-	pwm1 := math.Abs(speed1) / 100
-	pwm2 := math.Abs(speed2) / 100
-	log.Printf("Motor 1: dir %v speed %v. Motor 2: dir %v speed %v.", state1, pwm1, state2, pwm2)
-
-	// Set GPIO direction pins
-	gpioByte, err := motorGpioByte(state1, state2)
-	if err != nil {
-		return err
-	}
-	gpioByteAddr := mcp23017.GPIO_B_PAIRED
-	log.Printf("Setting GPIO port B to %#02x (at addr %#02x)", gpioByte, gpioByteAddr)
-	if !debugMotors {
-		if err := t.Bus().I2cWrite(gpioAddr, gpioByteAddr, gpioByte); err != nil {
-			return err
-		}
-	}
-
-	pwmAddr := pca9685.ADDRESS
-
-	// Configure PWM signals
-	pwmValues := make([]byte, 8)
-	pca9685.ValuesInto(pwm1, pwmValues)
-	pca9685.ValuesInto(pwm2, pwmValues[4:])
-	pwmValues = append([]byte{pca9685.LED0}, pwmValues...)
-	log.Printf("Setting PWM values for motor 1 and 2 to %#02x...", pwmValues)
-	if !debugMotors {
-		if err := t.Bus().I2cWrite(pwmAddr, pwmValues...); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func getMotorState(speed float64) int {
-	if speed < 0 {
-		return motorBackward
-	} else if speed > 0 {
-		return motorForward
-	}
-	return motorStop
-}
-
-func motorGpioByte(state1, state2 int) (byte, error) {
-	result := byte(0)
-	switch state1 {
-	case motorStop:
-	case motorForward:
-		result |= 1
-	case motorBackward:
-		result |= 2
-	default:
-		return 0, fmt.Errorf("Illegal motor state %v", state1)
-	}
-	switch state2 {
-	case motorStop:
-	case motorForward:
-		result |= 4
-	case motorBackward:
-		result |= 8
-	default:
-		return 0, fmt.Errorf("Illegal motor state %v", state2)
-	}
-	return result, nil
-}
-
-func setMotorDirect(speed float64) error {
-	if speed < -100 || speed > 100 {
-		return fmt.Errorf("Illegal motor speed1 %v (must be -100..100)", speed)
-	}
-	if err := t.Motors.Init(); err != nil {
-		return err
-	}
-	return t.Motors.Set(speed, speed)
+	return t.Motors.Set(motorSpeed1, motorSpeed2)
 }
 
 func setRawLeds() error {

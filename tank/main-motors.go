@@ -1,6 +1,7 @@
 package tank
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/antongulenko/tank/ft260"
@@ -41,6 +42,13 @@ func (m *MainMotors) ForceSet(left, right float64) error {
 
 // Input values in -100..100
 func (m *MainMotors) Set(left, right float64) error {
+	if left < -100 || left > 100 {
+		return fmt.Errorf("Illegal left motor %v (must be -100..100)", left)
+	}
+	if right < -100 || right > 100 {
+		return fmt.Errorf("Illegal right motor %v (must be -100..100)", right)
+	}
+
 	// Split the two float values into separate speed and direction
 	leftSpeed := math.Abs(left) / 100
 	rightSpeed := math.Abs(right) / 100
