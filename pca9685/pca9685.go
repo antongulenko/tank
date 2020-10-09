@@ -258,6 +258,7 @@ func (m *PwmOutput) FillCurrentState(newState []float64, from byte) []float64 {
 		newStateCopy := make([]float64, len(newState)+int(from))
 		copy(newStateCopy[from:], newState)
 		copy(newStateCopy[:from], m.CurrentState[:from])
+		newState = newStateCopy
 	}
 
 	// Append missing values at the end, or shorten

@@ -74,8 +74,9 @@ func (m *MainLeds) SetRow(from, to byte, val float64) error {
 	if val > 1 {
 		val = 1
 	}
-	num := from - to + 1
-	fullOn := math.Floor(val / float64(num))
+	num := to - from + 1
+	slice := 1 / float64(num)
+	fullOn := math.Floor(val / slice)
 	rest := val - fullOn
 	fullOnI := int(fullOn)
 
@@ -84,7 +85,7 @@ func (m *MainLeds) SetRow(from, to byte, val float64) error {
 		if i < fullOnI {
 			values[i] = 1
 		} else if i == fullOnI {
-			values[i] = rest
+			values[i] = rest / slice
 		} else {
 			values[i] = 0
 		}
