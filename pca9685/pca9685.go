@@ -252,7 +252,15 @@ type PwmOutput struct {
 	OptimizeUpdate bool
 }
 
-func (m *PwmOutput) FillCurrentState(newState []float64) []float64 {
+func (m *PwmOutput) FillCurrentState(newState []float64, from byte) []float64 {
+	// Prepend missing values at the front
+	if from > 0 {
+		newStateCopy := make([]float64, len(newState)+int(from))
+		copy(newStateCopy[from:], newState)
+		copy(newStateCopy[:from], m.CurrentState[:from])
+	}
+
+	// Append missing values at the end, or shorten
 	if len(newState) < len(m.CurrentState) {
 		newState = append(newState, m.CurrentState[len(newState):]...)
 	} else if len(newState) > len(m.CurrentState) {

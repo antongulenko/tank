@@ -35,14 +35,14 @@ func (m *MainLeds) Init() error {
 }
 
 func (m *MainLeds) SetAll(values []float64) error {
-	values = m.pwmOutput.FillCurrentState(values)
-	return m.update(m.PwmStart, values)
+	values = m.pwmOutput.FillCurrentState(values, 0)
+	return m.update(values)
 }
 
-func (m *MainLeds) update(start byte, values []float64) error {
-	pwmValues := m.pwmOutput.Update(start, values)
+func (m *MainLeds) update(values []float64) error {
+	pwmValues := m.pwmOutput.Update(m.PwmStart, values)
 	if m.Dummy {
-		log.Printf("Dummy Leds: update at %v to values: %v", start, values)
+		log.Printf("Dummy Leds: update to values: %v", values)
 		return nil
 	} else {
 		return m.bus.I2cWrite(m.I2cAddr, pwmValues...)
@@ -50,7 +50,7 @@ func (m *MainLeds) update(start byte, values []float64) error {
 }
 
 func (m *MainLeds) DisableAll() error {
-	return m.update(m.PwmStart, make([]float64, m.NumLeds))
+	return m.update(make([]float64, m.NumLeds))
 }
 
 func (m *MainLeds) Groups() (red, green, yellow LedGroup) {
@@ -89,7 +89,8 @@ func (m *MainLeds) SetRow(from, to byte, val float64) error {
 			values[i] = 0
 		}
 	}
-	return m.update(from, values)
+	values = m.pwmOutput.FillCurrentState(values, from)
+	return m.update(values)
 }
 
 type LedGroup struct {
