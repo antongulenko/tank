@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"time"
@@ -19,12 +20,16 @@ import (
 type commandFunc func() error
 
 var (
-	t          = tank.DefaultTank
-	sleepTime  = 400 * time.Millisecond
-	benchTime  = 3 * time.Second
-	command    = "scan"
-	ledI2cAddr = uint(0x44)
-	commands   = map[string]commandFunc{
+	t           = tank.DefaultTank
+	sleepTime   = 400 * time.Millisecond
+	benchTime   = 3 * time.Second
+	command     = "scan"
+	ledI2cAddr  = uint(0x44)
+	motorSpeed1 = float64(0)
+	motorSpeed2 = float64(0)
+	debugMotors bool
+
+	commands = map[string]commandFunc{
 		"none":           func() error { return nil },
 		"scan":           scan,
 		"bench":          gpioSpeedTest,
@@ -36,9 +41,6 @@ var (
 		"tankLedStartup": playTankLedStartup,
 		"battery":        readBatteryVoltage,
 	}
-	motorSpeed1 = float64(0)
-	motorSpeed2 = float64(0)
-	debugMotors bool
 )
 
 func main() {
@@ -244,16 +246,13 @@ func setTankLeds() error {
 }
 
 func playTankLedStartup() error {
-	return fmt.Errorf("Startup sequence not yet implemented")
-	/*
-		return tank.RunLedStartupSequence(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
-			if err := t.Leds.Set(values); err != nil {
-				return err
-			}
-			time.Sleep(sleepTime)
-			return nil
-		})
-	*/
+	return tank.DefaultLedSequence.Run(math.MaxInt32, func(sleepTime time.Duration, values []float64) error {
+		if err := t.Leds.SetAll(values); err != nil {
+			return err
+		}
+		time.Sleep(sleepTime)
+		return nil
+	})
 }
 
 func readBatteryVoltage() error {
