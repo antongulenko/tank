@@ -64,7 +64,7 @@ func main() {
 		ledSequence:           tank.DefaultLedSequence,
 		startupSequenceRounds: 2,
 		ledControlLoopSleep:   100 * time.Millisecond,
-		heartbeatStep:         0.001,
+		heartbeatStep:         0.05,
 	}
 	controller.SingleStick.Axis.SingleInvertFlag = false
 
