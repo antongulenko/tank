@@ -196,7 +196,7 @@ func (c *tankController) setupJoysticks() (*joysticks.HID, error) {
 	}
 	sequenceButton := uint8(c.ledSequenceButton)
 	if js.ButtonExists(sequenceButton) {
-		runSequence := js.OnButton(sequenceButton)
+		runSequence := js.OnClose(sequenceButton)
 		go func() {
 			for range runSequence {
 				c.runLedSequence(1)
