@@ -148,12 +148,7 @@ func (c *tankController) run() {
 	// Run startup sequence
 	if c.startupSequenceRounds > 0 {
 		log.Println("Initialization done, running LED startup sequence...")
-		if err := c.runLedSequence(c.startupSequenceRounds); err != nil {
-			log.Errorf("Startup LED sequence failed: %v", err)
-		}
-	}
-	if err := c.manualLeds.Set(0); err != nil {
-		log.Errorf("Failed to disable manual LEDs: %v", err)
+		c.runLedSequence(c.startupSequenceRounds)
 	}
 
 	// Display motor speed, battery voltage. Does not return.
@@ -204,9 +199,7 @@ func (c *tankController) setupJoysticks() (*joysticks.HID, error) {
 		runSequence := js.OnButton(sequenceButton)
 		go func() {
 			for range runSequence {
-				if err := c.runLedSequence(1); err != nil {
-					log.Errorf("Triggered LED sequence failed: %v")
-				}
+				c.runLedSequence(1)
 			}
 		}()
 	} else {
@@ -240,18 +233,24 @@ func (c *tankController) toggleMotorController(js *joysticks.HID) {
 	}
 }
 
-func (c *tankController) runLedSequence(numRounds int) error {
+func (c *tankController) runLedSequence(numRounds int) {
 	c.sequenceRunning = true
 	defer func() {
 		c.sequenceRunning = false
 	}()
-	return c.ledSequence.Run(numRounds, func(sleepTime time.Duration, values []float64) (err error) {
+	err := c.ledSequence.Run(numRounds, func(sleepTime time.Duration, values []float64) (err error) {
 		err = c.tank.Leds.SetAll(values)
 		if err == nil {
 			time.Sleep(sleepTime)
 		}
 		return
 	})
+	if err != nil {
+		log.Errorf("LED sequence failed: %v", err)
+	}
+	if err := c.manualLeds.Set(0); err != nil {
+		log.Errorf("Failed to disable manual LEDs: %v", err)
+	}
 }
 
 func (c *tankController) ledControlLoop() {
