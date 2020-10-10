@@ -1,0 +1,13 @@
+[Unit]
+Description=Wait for connected joysticks and attempt to control the tank main motors
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/anton/.gvm/pkgsets/go1.14.6/global/bin/tank-control-daemon -right 2 -rightY -rightZeroFrom -0.18 -leftZeroFrom -0.18 -minSpeed 0.17 -adjustSleep 10ms -accelSlopeTime 300ms -decelSlopeTime 200ms -singleInvertY=true -singleInvertX=false -singleStick -leds 3
+Restart=always
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target
+

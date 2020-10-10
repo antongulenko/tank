@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/xboxdrv -d
+ExecStart=/home/anton/tank/scripts/tank-xboxdrv.sh
 Restart=always
 RestartSec=3s
 
