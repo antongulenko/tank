@@ -17,8 +17,8 @@ const (
 
 func setGpioMotors() error {
 	gpioAddr := mcp23017.ADDRESS
-	speed1 := motorSpeed1
-	speed2 := motorSpeed2
+	speed1 := speedLeft
+	speed2 := speedRight
 
 	if speed1 < -100 || speed1 > 100 {
 		return fmt.Errorf("Illegal motor speed1 %v (must be -100..100)", speed1)

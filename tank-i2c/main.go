@@ -25,8 +25,8 @@ var (
 	benchTime   = 3 * time.Second
 	command     = "scan"
 	ledI2cAddr  = uint(0x44)
-	motorSpeed1 = float64(0)
-	motorSpeed2 = float64(0)
+	speedLeft   = float64(0)
+	speedRight  = float64(0)
 	debugMotors bool
 
 	commands = map[string]commandFunc{
@@ -49,8 +49,8 @@ func main() {
 	flag.DurationVar(&sleepTime, "sleep", sleepTime, "Sleep time between GPIO updates (gpio command)")
 	flag.DurationVar(&benchTime, "benchTime", sleepTime, "Benchmark time (bench command)")
 	flag.StringVar(&command, "c", command, fmt.Sprintf("Command to execute, one of: %v", commands))
-	flag.Float64Var(&motorSpeed1, "l", motorSpeed1, "Speed of motor 1 (-100..100)")
-	flag.Float64Var(&motorSpeed2, "r", motorSpeed2, "Speed of motor 2 (-100..100)")
+	flag.Float64Var(&speedLeft, "l", speedLeft, "Speed of motor 1 (-100..100)")
+	flag.Float64Var(&speedRight, "r", speedRight, "Speed of motor 2 (-100..100)")
 	flag.BoolVar(&debugMotors, "debugMotors", false, "Output values that would be written, instead of writing them")
 	golib.RegisterLogFlags()
 	flag.Parse()
@@ -192,7 +192,7 @@ func setMotors() error {
 	if err := t.Motors.Init(); err != nil {
 		return err
 	}
-	return t.Motors.Set(motorSpeed1, motorSpeed2)
+	return t.Motors.Set(speedLeft, speedRight)
 }
 
 func setRawLeds() error {
