@@ -19,7 +19,7 @@ type MainMotors struct {
 	InvertRightDir, InvertLeftDir bool
 
 	// Starting from the first PWM output, the order of outputs must be:
-	// Right Direction, Right Speed, Left Direction, Left Speed
+	// Left Direction, Left Speed, Right Direction, Right Speed
 	PwmStart byte // pca9685.LED0
 
 	pwmOutput pca9685.PwmOutput
@@ -63,7 +63,7 @@ func (m *MainMotors) Set(left, right float64) error {
 		return
 	}
 	newState := []float64{
-		dirToFloat(rightDir), rightSpeed, dirToFloat(leftDir), leftSpeed,
+		dirToFloat(leftDir), leftSpeed, dirToFloat(leftDir), leftSpeed,
 	}
 	pwmValues := m.pwmOutput.Update(m.PwmStart, newState)
 
